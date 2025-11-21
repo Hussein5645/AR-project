@@ -295,6 +295,13 @@
             <option value="panorama">صورة بانورامية (jpg/png)</option>
         </select>
         <button id="load-button" style="display: none;" onclick="loadModel()">تحميل المحتوى</button>
+        <div id="error-box" style="display:none; background:#922; color:#fff; padding:10px; border-radius:6px; font-size:13px; line-height:1.4; text-align:right; max-height:150px; overflow:auto;">خطأ في التحميل. غالباً مشكلة CORS مع Google Drive.
+        <br>الحل:
+        <br>1. ضع النموذج داخل المستودع واستخدم رابط raw: <code>https://raw.githubusercontent.com/USERNAME/REPO/BRANCH/path/file.glb</code>
+        <br>2. أو استخدم jsDelivr: <code>https://cdn.jsdelivr.net/gh/USERNAME/REPO@BRANCH/path/file.glb</code>
+        <br>3. أو استضفه على خدمة تدعم CORS (مثل Cloudflare R2).
+        <br>يمكن لصق رابط مباشر كامل بدل المعرف وسيتعامل معه النظام.
+        </div>
 
         <div id="qr-placeholder">
             <canvas id="qrcode" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);   margin-top: 30px;"></canvas>
@@ -431,22 +438,41 @@ function loadModel() {
     const fileType = document.getElementById('file-type').value;
     if (!fileId) { alert('يرجى إدخال معرف الملف'); return; }
     // Google Drive file IDs غالباً أطوال > 10، لا نفرض طول ثابت.
-    const fileUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    // إذا كان المستخدم أدخل رابط كامل مباشر (يحتوي http) نستخدمه كما هو، وإلا نبني رابط Drive
+    const fileUrl = fileId.startsWith('http') ? fileId : `https://drive.google.com/uc?export=download&id=${fileId}`;
     showLoadingScreen(true);
     if (fileType === 'model') {
-        modelViewer.src = fileUrl;
-        modelViewer.style.display = 'block';
-        panoViewer.style.display = 'none';
-        // بعد التحميل سيتم إخفاء شاشة الانتظار عبر حدث load
+        // نجرب fetch بسيط للتحقق من إمكانية الوصول مع CORS قبل ضبط src
+        fetch(fileUrl, { method:'GET' })
+          .then(r => {
+             if(!r.ok) throw new Error('HTTP '+r.status);
+             modelViewer.src = fileUrl;
+             modelViewer.style.display = 'block';
+             panoViewer.style.display = 'none';
+             setTimeout(()=>{ showLoadingScreen(false); }, 8000);
+          })
+          .catch(err => {
+             showLoadingScreen(false);
+             displayError(`تعذر تحميل النموذج. السبب المحتمل CORS أو منع الوصول. (${err.message})`);
+          });
     } else {
         modelViewer.style.display = 'none';
         panoViewer.style.display = 'block';
-        pannellum.viewer('pano-viewer', {
+        // بانوراما الصور من Drive قد تفشل أيضاً مع CORS؛ نجرب قبل العرض
+        fetch(fileUrl, { method:'GET' })
+          .then(r => {
+             if(!r.ok) throw new Error('HTTP '+r.status);
+             pannellum.viewer('pano-viewer', {
             type: 'equirectangular',
             panorama: fileUrl,
             autoLoad: true,
             onload: () => showLoadingScreen(false),
-        });
+             });
+          })
+          .catch(err => {
+             showLoadingScreen(false);
+             displayError(`تعذر تحميل الصورة البانورامية. (${err.message})`);
+          });
     }
     // تحديث الرابط للـ QR
     const newUrl = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(fileId)}&type=${fileType}`;
@@ -478,6 +504,12 @@ function loadModel() {
 
         modelViewer.addEventListener('load', () => showLoadingScreen(false));
         panoViewer.addEventListener('load', () => showLoadingScreen(false));
+
+        function displayError(msg){
+            const box = document.getElementById('error-box');
+            box.style.display = 'block';
+            box.innerHTML = msg + '<br><br>جرب استضافة بديلة تدعم CORS (raw GitHub أو jsDelivr).';
+        }
 
         modelViewer.addEventListener('ar-status', (event) => {
             if (event.detail.status === 'session-started') {
