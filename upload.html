@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>رفع رابط نموذج / صورة عامة</title>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pannellum/build/pannellum.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum/build/pannellum.css" />
+    <style>
+        body[lang="ar"] { direction: rtl; }
+        body[lang="en"] { direction: ltr; }
+        body { margin:0; font-family:Arial, sans-serif; background:#121212; color:#fff; }
+        #lang-toggle { position:fixed; top:10px; left:10px; padding:8px 12px; border-radius:5px; background:#444; color:#fff; cursor:pointer; font-weight:bold; z-index:20; }
+        #lang-toggle:hover { background:#555; }
+        #container { max-width:560px; margin:90px auto 40px; background:#1e1e1e; padding:25px 28px 35px; border-radius:10px; box-shadow:0 4px 14px rgba(0,0,0,0.6); position:relative; }
+        h1 { margin-top:0; font-size:22px; text-align:center; }
+        p { line-height:1.5; font-size:14px; opacity:.85; }
+        input[type=text] { width:100%; padding:12px 14px; background:#333; color:#fff; border:none; border-radius:6px; font-size:14px; margin:10px 0 16px; box-sizing:border-box; }
+        input[type=text]:focus { outline:none; background:#3d3d3d; box-shadow:0 0 0 2px #007bff55; }
+        button.action { width:100%; padding:14px 18px; background:#007bff; color:#fff; border:none; border-radius:6px; font-size:15px; font-weight:bold; cursor:pointer; margin-top:5px; display:flex; align-items:center; justify-content:center; gap:8px; }
+        button.action:hover { background:#0056b3; }
+        #result-section { margin-top:25px; display:none; }
+        #share-link { word-break:break-all; font-size:13px; background:#222; padding:10px 12px; border-radius:6px; margin-top:10px; display:block; text-decoration:none; color:#4fc3f7; }
+        #qr-wrapper { width:140px; height:140px; background:#222; border-radius:10px; margin:18px auto 10px; position:relative; display:flex; align-items:center; justify-content:center; }
+        canvas { max-width:140px !important; max-height:140px !important; }
+        #save-qr-button { display:none; background:#ffc107; color:#000; padding:12px 16px; border-radius:6px; font-weight:bold; cursor:pointer; text-align:center; margin:12px auto 0; width:100%; }
+        #save-qr-button:hover { background:#e0a800; }
+        .note { font-size:12px; opacity:.7; margin-top:6px; }
+        #error-msg { color:#ff6b6b; font-size:13px; min-height:18px; margin-top:4px; }
+        #back-index { position:fixed; bottom:10px; right:10px; background:#444; width:42px; height:42px; border-radius:50%; cursor:pointer; background:url('icon/show.png') center center no-repeat; background-size:20px 20px; }
+        #back-index:hover { background-color:#555; }
+    </style>
+</head>
+<body lang="ar">
+    <button id="lang-toggle" onclick="toggleLanguage()">English</button>
+    <div id="container">
+        <h1 id="page-title">إنشاء رابط مشاركة للنموذج أو الصورة</h1>
+        <p id="page-desc">ألصق رابط عام مباشر لملف GLB / GLTF أو صورة بانورامية JPG / PNG (equirectangular). سيتم ترميزه وإنتاج رابط قابل للمشاركة مع صفحة العرض.</p>
+        <input type="text" id="resource-url" placeholder="ألصق الرابط العام هنا" />
+        <div id="error-msg"></div>
+        <button class="action" id="generate-btn">توليد رابط المشاركة</button>
+        <div id="result-section">
+            <a id="share-link" href="#" target="_blank"></a>
+            <div id="qr-wrapper"><canvas id="qrcode"></canvas></div>
+            <div id="save-qr-button">حفظ QR CODE</div>
+            <div class="note" id="open-note">افتح الرابط على الجوال لتجربة الواقع المعزز (إن وجد).</div>
+        </div>
+    </div>
+    <button id="back-index" title="الصفحة الرئيسية" onclick="window.location.href='index.html'"></button>
+
+<script>
+const textContent = {
+  ar: {
+    title: 'إنشاء رابط مشاركة للنموذج أو الصورة',
+    desc: 'ألصق رابط عام مباشر لملف GLB / GLTF أو صورة بانورامية JPG / PNG (equirectangular). سيتم ترميزه وإنتاج رابط قابل للمشاركة مع صفحة العرض.',
+    placeholder: 'ألصق الرابط العام هنا',
+    generate: 'توليد رابط المشاركة',
+    invalid: 'صيغة غير مدعومة أو رابط غير صحيح.',
+    savedQr: 'حفظ QR CODE',
+    note: 'افتح الرابط على الجوال لتجربة الواقع المعزز (إن وجد).',
+    toggle: 'English'
+  },
+  en: {
+    title: 'Generate Share Link for Model or Image',
+    desc: 'Paste a direct public URL to a GLB / GLTF file or equirectangular JPG / PNG image. It will be encoded into a shareable viewer link.',
+    placeholder: 'Paste public URL here',
+    generate: 'Generate Share Link',
+    invalid: 'Unsupported format or invalid URL.',
+    savedQr: 'Save QR CODE',
+    note: 'Open link on mobile to experience AR (if supported).',
+    toggle: 'Arabic'
+  }
+};
+
+function toggleLanguage(){
+  const current = document.documentElement.lang;
+  const next = current === 'ar' ? 'en' : 'ar';
+  document.documentElement.lang = next;
+  document.body.setAttribute('lang', next);
+  document.getElementById('page-title').textContent = textContent[next].title;
+  document.getElementById('page-desc').textContent = textContent[next].desc;
+  document.getElementById('resource-url').placeholder = textContent[next].placeholder;
+  document.getElementById('generate-btn').textContent = textContent[next].generate;
+  document.getElementById('save-qr-button').textContent = textContent[next].savedQr;
+  document.getElementById('open-note').textContent = textContent[next].note;
+  document.getElementById('lang-toggle').textContent = textContent[next].toggle;
+}
+
+function encodeResourceUrl(url){
+  return btoa(url).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function validateUrl(url){
+  try { new URL(url); } catch(e){ return false; }
+  return true;
+}
+
+function detectType(url){
+  const ext = url.split('?')[0].split('.').pop().toLowerCase();
+  if(['glb','gltf'].includes(ext)) return 'model';
+  if(['jpg','jpeg','png'].includes(ext)) return 'image';
+  return 'unknown';
+}
+
+const generateBtn = document.getElementById('generate-btn');
+const errorMsg = document.getElementById('error-msg');
+const resourceInput = document.getElementById('resource-url');
+const resultSection = document.getElementById('result-section');
+const shareLink = document.getElementById('share-link');
+const saveQrBtn = document.getElementById('save-qr-button');
+const qrcodeCanvas = document.getElementById('qrcode');
+
+saveQrBtn.addEventListener('click', () => {
+  const canvas = qrcodeCanvas;
+  if(!canvas) return;
+  const dataUrl = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = 'qr-code.png'; a.click();
+});
+
+generateBtn.addEventListener('click', () => {
+  errorMsg.textContent = '';
+  const url = resourceInput.value.trim();
+  const lang = document.documentElement.lang;
+  if(!url || !validateUrl(url)){ errorMsg.textContent = textContent[lang].invalid; return; }
+  const type = detectType(url);
+  if(type === 'unknown'){ errorMsg.textContent = textContent[lang].invalid; return; }
+  const key = encodeResourceUrl(url);
+  const viewerUrl = `${window.location.origin}${window.location.pathname.replace('upload.html','index.html')}?key=${key}`;
+  shareLink.href = viewerUrl;
+  shareLink.textContent = viewerUrl;
+  resultSection.style.display = 'block';
+  saveQrBtn.style.display = 'block';
+  qrcodeCanvas.getContext && (qrcodeCanvas.getContext('2d').clearRect(0,0,qrcodeCanvas.width,qrcodeCanvas.height));
+  qrcodeCanvas.innerHTML = '';
+  QRCode.toCanvas(qrcodeCanvas, viewerUrl, err => { if(err) console.error(err); });
+});
+</script>
+</body>
+</html>
