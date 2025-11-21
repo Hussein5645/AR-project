@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Model & 360 Image Viewer with AR and AWS S3</title>
-    <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <!-- Removed AWS SDK; adding Google API + jsrsasign for JWT signing -->
     <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.5.27/lib/jsrsasign.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pannellum/build/pannellum.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum/build/pannellum.css">
@@ -300,15 +302,63 @@
         <button id="ar-button" style="display: none;" onclick="openAR()">عرض في الواقع المعزز</button> <!-- AR button text in Arabic -->
     </div>
 
-    <script>
-        AWS.config.update({
-            accessKeyId: "AKIA2UC3F6ZRB2ZJ2NVU",
-            secretAccessKey: "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",
-            region: "us-east-2",
-        });
+        <script>
+                /****************************************************
+                 * تحذير أمني: وضع المفتاح الخاص في الواجهة الأمامية خطير جداً.
+                 * هذا لأغراض الاختبار فقط كما طلبت، يجب إزالته فوراً قبل الإطلاق.
+                 ****************************************************/        
+                const serviceAccount = {
+                    type: "service_account",
+                    project_id: "printer-440818",
+                    private_key_id: "5b8b59cebbb9a40b3b66035729a6f7c322602dda",
+                    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCX2vCO8UTspLpv\nkDtQovZQzzMRgmUqkTlDrVUVHX1KNECoXVe0951Eylx6GOZFp2scac679NJyJ7MV\nfJiYPGXqq4EfK0onZOXkkJ+lmnSVCkWV80wR2UqnVRPH/fEzCv2pApohJUM795EX\nPORXBNvro7OvlPlsYo/aPy0jyPmdwxitQAHGd7x9OffV7MOf5Qxhqh8Wv04UXSDl\nwMKc85VVGaxHcBhfLPCybom7u9gjZ7cqFoDJ8SmwwV+2JhNKQobWHoCyTJGAGCQ2\nxUG/Tvhf+v+YYPLqu4SZ8Pk8gJycoWAe2CZY4X2vaD6ikuAUISRrIPzynkidORaA\nIApjsgajAgMBAAECggEAQPtPGpQTLwLUxv3c7AY4Sl9IFrOKcBtB+nx3XrhGT5Up\noAKFkCqvsWq5BQSXsXHRi5CZh2PeFDx5zXWKZQbfg/rNH9Xp/w6Vs+fRcU+1mLuT\nCHZa9H5cDFwDQX8hEnsfDg5Pf2SPL1+ixmNnwPcS1vSv5TBmRaOttDJ5sgkEDCZy\nK1qps9a+3UFBkJKW9tMB2D8JQTMVXuhC1BVYxxu1VzfAP0eGue4SeKOSGAChjH6v\nkud6Fs9Cpy+FUeQfdYDMjXp2YAxZLjIJMror7GwcPKcG7CpnakjTvV/TF2QHqjad\npPRO7N6Y0cuYJ9OXVOYKSrsRq6gKL8ScQpF5lOiNsQKBgQDH6K31NstqwR6Jf3H5\nLRS084OYGYNzf5Wjfvv/KRYu0zIdGY+HbfDaZjhJ1Q123nsxARFPSapHLyEwdJt0\n7f7hKNv2XiaycDZJRV+FMY/0Dqyjv2e/AMjZ0rArEWvfC/QZILMwvGrGY0c0oerX\nc2qPPo3ZvRrgt35VXLwrQWyskwKBgQDCdpkBHT/ulSjyeg+AG6XBmGEbxR+Rqfuz\nrOsalBs2qEUoOro49Yk3zlKMyLFHGgcVFif1cEDiHBk/0M6P8OdDYVSGR7oN5101\nJZuyiNNfI0F23HPzcp6zI1gKuB89/Vs/J8nQXtaKBGY20s/CQxI6xzXUFRsR+60I\nxqFYWayXsQKBgQDDcj+xgLL8WndKoumBXoviJjrAWCFmqJRaVup1G2xut1lFjhn/\npINYY5wgw0X4s6fpz0tnI3RxSCjAwSDD/3O0G0iC5KYcywyoMkUjacN+L2KmbZo2\n6cN1A0HtuYind35dmtTWj0AtWh7h3HRH1LWX+uagvPwsO/ot5w6pk7t2NQKBgEb4\nXZLIiAKcsVr9LRcGABKNeDNYV9MjhFborsz+bIggFU0/UaNkCPYy+HGk9P4MA7Ww\nZlju5N8gfh6KKDjkJKK0rNJs7vwQCjZRSWd5BBtelI+6mR6qID0kkwcmd1B6XIjK\nDp9bXVT1khBEE8rEC60j8wM5yK1hep8PTucdox2hAoGBAJOZ897VSZbYq1ckJfX8\nwsk+bOSHWP/r4ClDPfoHPriYB4sWhagMhHU/gq0dlRNbOS3EJrXlPdA2FC9S6OQz\n/IlB21hQBnQDgbtFOQi4mawxUaDrqaVvPIpm6RWQFq+9wdeof41f10yHeBHZo88D\njPFaGGnkLaUUNKHnNqAYWMM6\n-----END PRIVATE KEY-----\n",
+                    client_email: "ar-284@printer-440818.iam.gserviceaccount.com",
+                    token_uri: "https://oauth2.googleapis.com/token"
+                };
 
-        const s3 = new AWS.S3();
-        const bucketName = '3dmodelsvalut';
+                let googleAccessToken = null;
+                const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
+
+                async function obtainAccessToken() {
+                    try {
+                        const now = Math.floor(Date.now() / 1000);
+                        const header = { alg: "RS256", typ: "JWT" };
+                        const claimSet = {
+                            iss: serviceAccount.client_email,
+                            scope: DRIVE_SCOPE,
+                            aud: serviceAccount.token_uri,
+                            iat: now,
+                            exp: now + 3600
+                        };
+                        const sHeader = JSON.stringify(header);
+                        const sClaim = JSON.stringify(claimSet);
+                        const key = KEYUTIL.getKey(serviceAccount.private_key);
+                        const jwt = KJUR.jws.JWS.sign("RS256", sHeader, sClaim, key);
+                        const body = new URLSearchParams({
+                            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                            assertion: jwt
+                        });
+                        const resp = await fetch(serviceAccount.token_uri, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                            body
+                        });
+                        const data = await resp.json();
+                        if (data.access_token) {
+                            googleAccessToken = data.access_token;
+                            console.log("Google Drive access token acquired.");
+                        } else {
+                            console.error("Failed to obtain token", data);
+                            alert("فشل الحصول على توكن Google Drive للاختبار.");
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        alert("خطأ أثناء إنشاء التوكن.");
+                    }
+                }
+
+                // استدعاء التهيئة عند التحميل
+                window.addEventListener('DOMContentLoaded', obtainAccessToken);
         const modelViewer = document.getElementById('model-viewer');
         const panoViewer = document.getElementById('pano-viewer');
         const loadButton = document.getElementById('load-button');
@@ -430,90 +480,69 @@ function showLoadingScreen(show, totalBytes = 0) {
 }
 
 // Modify loadModel function to get file size and show progress
-function loadModel() {
-    const prefix = document.getElementById('model-prefix').value;
-    if (prefix.length !== 10) {
-        alert('Please enter exactly 10 characters.');
-        return;
-    }
-
-    s3.listObjectsV2({ Bucket: bucketName, Prefix: prefix }, (err, data) => {
-        if (err) {
-            console.error('Error fetching bucket contents:', err);
-            alert('Error fetching bucket contents.');
-            return;
-        }
-
-        // Ensure data.Contents is defined and has items
-        if (data && data.Contents && data.Contents.length > 0) {
-            const key = data.Contents[0].Key;
-            const fileExtension = key.split('.').pop().toLowerCase();
-
-            const params = {
-                Bucket: bucketName,
-                Key: key,
-            };
-
-            s3.headObject(params, (err, metadata) => {
-                if (err) {
-                    console.error('Error getting file metadata:', err);
-                    alert('Error getting file metadata.');
-                    return;
-                }
-
-                const totalBytes = metadata.ContentLength;
-                showLoadingScreen(true, totalBytes);
-
-                s3.getObject(params)
-                    .on('httpDownloadProgress', (progress) => {
-                        loadedBytes = progress.loaded;
-                    })
-                    .send((err, data) => {
-                        if (err) {
-                            console.error('Error loading object:', err);
-                            alert('Error loading object.');
+                async function loadModel() {
+                    const prefix = document.getElementById('model-prefix').value;
+                    if (prefix.length !== 10) {
+                        alert('يرجى إدخال 10 أحرف بالضبط.');
+                        return;
+                    }
+                    if (!googleAccessToken) {
+                        alert('لا يوجد توكن للوصول إلى Google Drive.');
+                        return;
+                    }
+                    try {
+                        showLoadingScreen(true);
+                        // البحث عن الملف حسب البادئة
+                        const query = encodeURIComponent(`name contains '${prefix}_' and trashed=false`);
+                        const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,size)`, {
+                            headers: { Authorization: `Bearer ${googleAccessToken}` }
+                        });
+                        const listData = await listResp.json();
+                        if (!listData.files || listData.files.length === 0) {
+                            alert('لم يتم العثور على ملف بهذا المفتاح.');
                             showLoadingScreen(false);
                             return;
                         }
-
-                        // Process loaded file based on file type
-                        const fileUrl = `https://${bucketName}.s3.us-east-2.amazonaws.com/${key}`;
-                        if (fileExtension === 'gltf' || fileExtension === 'glb') {
-                            modelViewer.src = fileUrl;
+                        const file = listData.files[0];
+                        const fileId = file.id;
+                        const fileName = file.name;
+                        const ext = fileName.split('.').pop().toLowerCase();
+                        const totalBytes = parseInt(file.size || '0', 10);
+                        loadedBytes = 0;
+                        showLoadingScreen(true, totalBytes);
+                        const downloadResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                            headers: { Authorization: `Bearer ${googleAccessToken}` }
+                        });
+                        const blob = await downloadResp.blob();
+                        loadedBytes = totalBytes;
+                        const objectUrl = URL.createObjectURL(blob);
+                        if (ext === 'gltf' || ext === 'glb') {
+                            modelViewer.src = objectUrl;
                             modelViewer.style.display = 'block';
                             panoViewer.style.display = 'none';
-                        } else if (fileExtension === 'jpg' || fileExtension === 'jpeg' || fileExtension === 'png') {
+                        } else if (['jpg','jpeg','png'].includes(ext)) {
                             modelViewer.style.display = 'none';
                             panoViewer.style.display = 'block';
                             pannellum.viewer('pano-viewer', {
                                 type: 'equirectangular',
-                                panorama: fileUrl,
+                                panorama: objectUrl,
                                 autoLoad: true,
-                                onload: () => showLoadingScreen(false), // Add this onload callback here
+                                onload: () => showLoadingScreen(false)
                             });
                         } else {
-                            alert('Unsupported file format.');
-                            showLoadingScreen(false);
+                            alert('صيغة ملف غير مدعومة.');
                         }
-// Attach the model key to the URL
-const newUrl = `${window.location.origin}${window.location.pathname}?model=${prefix}`;
-window.history.replaceState(null, '', newUrl);
-
-// Generate and display QR code for the updated URL with the model key
-qrCodeContainer.innerHTML = ""; // Clear previous QR code
-QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
-    if (error) console.error(error);
-    console.log('QR code generated for model URL!');
-});
-
+                        const newUrl = `${window.location.origin}${window.location.pathname}?model=${prefix}`;
+                        window.history.replaceState(null, '', newUrl);
+                        qrCodeContainer.innerHTML = "";
+                        QRCode.toCanvas(qrCodeContainer, newUrl, (error) => { if (error) console.error(error); });
                         showLoadingScreen(false);
-                    });
-            });
-        } else {
-            alert('No model/image found with the given prefix.');
-        }
-    });
-}
+                    } catch (e) {
+                        console.error(e);
+                        alert('خطأ أثناء جلب الملف من Google Drive.');
+                        showLoadingScreen(false);
+                    }
+                }
 
 
 

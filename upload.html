@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>3D Model Upload</title>
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1482.0.min.js"></script>
+    <!-- إزالة AWS وإضافة مكتبة توقيع JWT لاختبار خدمة الحساب (تحذير: لا يُنصح بوضع المفتاح في الواجهة) -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.5.27/lib/jsrsasign.min.js"></script>
     <script src="https://static.parastorage.com/services/js-sdk/1.190.0/js/wixData.js"></script>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4681841565229362" crossorigin="anonymous"></script>
     <style>
@@ -164,14 +166,35 @@
         </div>
     </div>
     <script>
-        // Initialize AWS
-       /* AWS.config.update({
-            accessKeyId: "AKIA2UC3F6ZRB2ZJ2NVU",
-            secretAccessKey: "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",
-            region: "us-east-2",
-        });*/
-
-        const s3 = new AWS.S3();
+                /****************************************************
+                 * تحذير أمني هام: حفظ المفتاح الخاص هنا غير آمن.
+                 * هذا لأغراض الاختبار فقط حسب طلبك وسيجب إزالته لاحقاً.
+                 ****************************************************/
+                const serviceAccount = {
+                    type: "service_account",
+                    project_id: "printer-440818",
+                    private_key_id: "5b8b59cebbb9a40b3b66035729a6f7c322602dda",
+                    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCX2vCO8UTspLpv\nkDtQovZQzzMRgmUqkTlDrVUVHX1KNECoXVe0951Eylx6GOZFp2scac679NJyJ7MV\nfJiYPGXqq4EfK0onZOXkkJ+lmnSVCkWV80wR2UqnVRPH/fEzCv2pApohJUM795EX\nPORXBNvro7OvlPlsYo/aPy0jyPmdwxitQAHGd7x9OffV7MOf5Qxhqh8Wv04UXSDl\nwMKc85VVGaxHcBhfLPCybom7u9gjZ7cqFoDJ8SmwwV+2JhNKQobWHoCyTJGAGCQ2\nxUG/Tvhf+v+YYPLqu4SZ8Pk8gJycoWAe2CZY4X2vaD6ikuAUISRrIPzynkidORaA\nIApjsgajAgMBAAECggEAQPtPGpQTLwLUxv3c7AY4Sl9IFrOKcBtB+nx3XrhGT5Up\noAKFkCqvsWq5BQSXsXHRi5CZh2PeFDx5zXWKZQbfg/rNH9Xp/w6Vs+fRcU+1mLuT\nCHZa9H5cDFwDQX8hEnsfDg5Pf2SPL1+ixmNnwPcS1vSv5TBmRaOttDJ5sgkEDCZy\nK1qps9a+3UFBkJKW9tMB2D8JQTMVXuhC1BVYxxu1VzfAP0eGue4SeKOSGAChjH6v\nkud6Fs9Cpy+FUeQfdYDMjXp2YAxZLjIJMror7GwcPKcG7CpnakjTvV/TF2QHqjad\npPRO7N6Y0cuYJ9OXVOYKSrsRq6gKL8ScQpF5lOiNsQKBgQDH6K31NstqwR6Jf3H5\nLRS084OYGYNzf5Wjfvv/KRYu0zIdGY+HbfDaZjhJ1Q123nsxARFPSapHLyEwdJt0\n7f7hKNv2XiaycDZJRV+FMY/0Dqyjv2e/AMjZ0rArEWvfC/QZILMwvGrGY0c0oerX\nc2qPPo3ZvRrgt35VXLwrQWyskwKBgQDCdpkBHT/ulSjyeg+AG6XBmGEbxR+Rqfuz\nrOsalBs2qEUoOro49Yk3zlKMyLFHGgcVFif1cEDiHBk/0M6P8OdDYVSGR7oN5101\nJZuyiNNfI0F23HPzcp6zI1gKuB89/Vs/J8nQXtaKBGY20s/CQxI6xzXUFRsR+60I\nxqFYWayXsQKBgQDDcj+xgLL8WndKoumBXoviJjrAWCFmqJRaVup1G2xut1lFjhn/\npINYY5wgw0X4s6fpz0tnI3RxSCjAwSDD/3O0G0iC5KYcywyoMkUjacN+L2KmbZo2\n6cN1A0HtuYind35dmtTWj0AtWh7h3HRH1LWX+uagvPwsO/ot5w6pk7t2NQKBgEb4\nXZLIiAKcsVr9LRcGABKNeDNYV9MjhFborsz+bIggFU0/UaNkCPYy+HGk9P4MA7Ww\nZlju5N8gfh6KKDjkJKK0rNJs7vwQCjZRSWd5BBtelI+6mR6qID0kkwcmd1B6XIjK\nDp9bXVT1khBEE8rEC60j8wM5yK1hep8PTucdox2hAoGBAJOZ897VSZbYq1ckJfX8\nwsk+bOSHWP/r4ClDPfoHPriYB4sWhagMhHU/gq0dlRNbOS3EJrXlPdA2FC9S6OQz\n/IlB21hQBnQDgbtFOQi4mawxUaDrqaVvPIpm6RWQFq+9wdeof41f10yHeBHZo88D\njPFaGGnkLaUUNKHnNqAYWMM6\n-----END PRIVATE KEY-----\n",
+                    client_email: "ar-284@printer-440818.iam.gserviceaccount.com",
+                    token_uri: "https://oauth2.googleapis.com/token"
+                };
+                let googleAccessToken = null;
+                const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
+                async function obtainAccessToken(){
+                    try {
+                        const now = Math.floor(Date.now()/1000);
+                        const header = { alg:"RS256", typ:"JWT" };
+                        const claim = { iss: serviceAccount.client_email, scope: DRIVE_SCOPE, aud: serviceAccount.token_uri, iat: now, exp: now+3600 };
+                        const key = KEYUTIL.getKey(serviceAccount.private_key);
+                        const jwt = KJUR.jws.JWS.sign("RS256", JSON.stringify(header), JSON.stringify(claim), key);
+                        const body = new URLSearchParams({ grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt });
+                        const resp = await fetch(serviceAccount.token_uri,{ method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body });
+                        const data = await resp.json();
+                        if(data.access_token){ googleAccessToken = data.access_token; console.log("Token acquired"); }
+                        else { console.error("Token error", data); alert("فشل الحصول على توكن Google Drive."); }
+                    } catch(e){ console.error(e); alert("خطأ في التوكن."); }
+                }
+                window.addEventListener('DOMContentLoaded', obtainAccessToken);
         const MAX_FILE_SIZE = 250 * 1024 * 1024;
         const ALLOWED_EXTENSIONS = [".glb", ".png", ".jpg"];
         const RATE_LIMIT_TIME = 60 * 1000;
@@ -235,82 +258,63 @@
             handleFile(file);
         });
 
-        // Upload button click event
-        uploadButton.addEventListener("click", async function () {
-            if (!selectedFile) {
-                alert(isArabic ? "لم يتم اختيار ملف." : "No file selected.");
-                return;
-            }
-
-            const currentTime = new Date().getTime();
-            if (currentTime - lastUploadTime < RATE_LIMIT_TIME) {
-                alert(isArabic ? "انتظر دقيقة قبل الرفع مجددا." : "Please wait a minute before uploading again.");
-                return;
-            }
-
-            lastUploadTime = currentTime;
-
-            try {
-                const randomCode = generateRandomCode();
-                const fileNameWithCode = `${randomCode}_${selectedFile.name}`;
-
-                const params = {
-                    Bucket: "3dmodelsvalut",
-                    Key: fileNameWithCode,
-                    Expires: 60,
-                    ContentType: selectedFile.type,
-                };
-
-                s3.getSignedUrl("putObject", params, function (err, url) {
-                    if (err) {
-                        fileStatus.textContent = isArabic ? "خطأ في إنشاء رابط التحميل." : "Error generating upload link.";
-                        console.error("Error generating upload link:", err);
-                        return;
+                // زر الرفع عبر Google Drive (جلسة resumable)
+                uploadButton.addEventListener("click", async function(){
+                    if(!selectedFile){ alert(isArabic?"لم يتم اختيار ملف.":"No file selected."); return; }
+                    if(!googleAccessToken){ alert(isArabic?"لا يوجد توكن.":"No access token."); return; }
+                    const currentTime = Date.now();
+                    if(currentTime - lastUploadTime < RATE_LIMIT_TIME){ alert(isArabic?"انتظر دقيقة." : "Wait a minute."); return; }
+                    lastUploadTime = currentTime;
+                    try {
+                        const randomCode = generateRandomCode();
+                        const fileNameWithCode = `${randomCode}_${selectedFile.name}`;
+                        progressContainer.style.display = "block";
+                        fileStatus.textContent = isArabic?"بدء جلسة الرفع...":"Starting upload session...";
+                        // إنشاء جلسة resumable
+                        const meta = { name: fileNameWithCode };
+                        const sessionResp = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+                            method:"POST",
+                            headers:{
+                                Authorization: `Bearer ${googleAccessToken}`,
+                                "Content-Type":"application/json; charset=UTF-8",
+                                "X-Upload-Content-Type": selectedFile.type,
+                                "X-Upload-Content-Length": selectedFile.size
+                            },
+                            body: JSON.stringify(meta)
+                        });
+                        if(!sessionResp.ok){ fileStatus.textContent = isArabic?"فشل بدء الجلسة":"Failed to start session"; return; }
+                        const uploadUrl = sessionResp.headers.get("Location");
+                        if(!uploadUrl){ fileStatus.textContent = isArabic?"لا رابط جلسة":"No session URL"; return; }
+                        const xhr = new XMLHttpRequest();
+                        xhr.open("PUT", uploadUrl, true);
+                        xhr.setRequestHeader("Content-Type", selectedFile.type);
+                        xhr.upload.onprogress = function(e){
+                            if(e.lengthComputable){
+                                const percent = Math.round((e.loaded/e.total)*100);
+                                progressBar.style.width = percent + '%';
+                                fileStatus.textContent = (isArabic?"جاري الرفع: ":"Uploading: ")+ percent + '%';
+                            }
+                        };
+                        xhr.onload = function(){
+                            if(xhr.status === 200 || xhr.status === 201){
+                                fileStatus.textContent = isArabic?"تم الرفع بنجاح":"Upload complete";
+                                modelKeyField.value = randomCode;
+                                progressBar.style.width = '100%';
+                                window.parent.postMessage({ action:"uploadModelData", modelKey: randomCode, modelName: selectedFile.name }, "*");
+                            } else {
+                                fileStatus.textContent = isArabic?"فشل الرفع":"Upload failed";
+                                console.error(xhr.responseText);
+                            }
+                        };
+                        xhr.onerror = function(){
+                            fileStatus.textContent = isArabic?"خطأ شبكة":"Network error";
+                        };
+                        xhr.send(selectedFile);
+                    } catch(e){
+                        console.error(e);
+                        fileStatus.textContent = isArabic?"خطأ أثناء الرفع":"Error during upload";
                     }
-
-                    progressContainer.style.display = "block";
-
-                    const xhr = new XMLHttpRequest();
-                    xhr.open("PUT", url, true);
-                    xhr.setRequestHeader("Content-Type", selectedFile.type);
-
-                    xhr.upload.addEventListener("progress", function (e) {
-                        if (e.lengthComputable) {
-                            const percentCompleted = Math.round((e.loaded / e.total) * 100);
-                            progressBar.style.width = percentCompleted + "%";
-                            fileStatus.textContent = isArabic ? `جاري الرفع: ${percentCompleted}%` : `Uploading: ${percentCompleted}%`;
-                        }
-                    });
-
-                    xhr.onload = function () {
-                        if (xhr.status === 200) {
-                            fileStatus.textContent = isArabic ? "تم رفع الملف بنجاح!" : "File uploaded successfully!";
-                            modelKeyField.value = randomCode;
-                            progressBar.style.width = "100%";
-                            const modelKey = modelKeyField.value;
-                            const modelName = selectedFile.name;
-                            window.parent.postMessage(
-                                { action: "uploadModelData", modelKey, modelName },
-                                "*"
-                            );
-                        } else {
-                            fileStatus.textContent = isArabic ? "خطأ أثناء الرفع." : "Error during upload.";
-                            console.error(`Error: ${xhr.statusText}`);
-                        }
-                    };
-
-                    xhr.onerror = function () {
-                        fileStatus.textContent = isArabic ? "خطأ في الشبكة أثناء التحميل!" : "Network error during file upload!";
-                        console.error("Network error during file upload.");
-                    };
-
-                    xhr.send(selectedFile);
                 });
-            } catch (error) {
-                fileStatus.textContent = isArabic ? "حدث خطأ أثناء الرفع." : "An error occurred during upload.";
-                console.error(error);
-            }
-        });
 
         // Generate a random code for the file name
         function generateRandomCode(length = 10) {
