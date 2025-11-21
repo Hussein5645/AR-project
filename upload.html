@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>3D Model Upload</title>
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1482.0.min.js"></script>
+    <title>Drive File Helper</title>
     <script src="https://static.parastorage.com/services/js-sdk/1.190.0/js/wixData.js"></script>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4681841565229362" crossorigin="anonymous"></script>
     <style>
@@ -92,7 +91,7 @@
             color: #D6BD73;
             cursor: pointer;
         }
-        #uploadButton {
+        #extractButton {
             background: #FFF86B;
             color: #333;
             padding: 10px 20px;
@@ -102,9 +101,7 @@
             margin-top: 10px;
             transition: background 0.3s;
         }
-        #uploadButton:hover {
-            background: #d7d057;
-        }
+        #extractButton:hover { background:#d7d057; }
         .model-key-container {
             margin-top: 20px;
             display: flex;
@@ -146,38 +143,22 @@
         </div>
     </div>
     <div class="container">
-        <h1 id="uploadTitle">ارفع ملف</h1>
-        <div class="drop-area" id="dropArea">
-            <p id="dragDropText">اسحب و افلت الملف هنا</p>
-            <p>او</p>
-            <label id="chooseFileLabel" for="fileInput">اختر ملف من الجهاز</label>
-            <input type="file" id="fileInput" accept=".glb, .png, .jpg" />
+        <h1 id="uploadTitle">مساعد استخراج معرف الملف</h1>
+        <p id="dragDropText">ضع رابط المشاركة لملف Google Drive ("مشاركة" ثم انسخ الرابط)</p>
+        <label id="chooseFileLabel" for="driveLink">رابط الملف:</label>
+        <input type="text" id="driveLink" placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:5px;"/>
+        <div class="model-key-container" style="margin-top:15px; flex-direction:column; align-items:stretch;">
+            <span class="model-key-label" id="modelKeyLabel">File ID:</span>
+            <input type="text" id="fileIdField" readonly placeholder="سيظهر معرف الملف هنا" style="margin-top:5px;"/>
+            <span style="margin-top:15px;" id="randomKeyLabel">(اختياري) مفتاح عرض قصير:</span>
+            <input type="text" id="shortKeyField" readonly placeholder="سيظهر المفتاح العشوائي هنا" style="margin-top:5px;"/>
         </div>
-        <div class="model-key-container">
-            <span class="model-key-label" id="modelKeyLabel">Model Key:</span>
-            <input type="text" id="modelKey" readonly placeholder="Model Key will appear here" />
-        </div>
-        <button id="uploadButton" disabled>أرفع</button>
-        <div id="status">---</div>
-        <div id="progressContainer">
-            <div id="progressBar"></div>
-        </div>
+        <button id="extractButton">استخرج المعرف</button>
+        <div id="status" style="margin-top:15px;">---</div>
+        <p style="font-size:0.9em; margin-top:20px; color:#555;">استخدم معرف الملف مباشرة في الصفحة الرئيسية أو احتفظ بالمفتاح القصير لديك. الرفع إلى هذا المجلد يتم يدوياً من حسابك في Google Drive.</p>
     </div>
     <script>
-        // Initialize AWS
-       /* AWS.config.update({
-            accessKeyId: "AKIA2UC3F6ZRB2ZJ2NVU",
-            secretAccessKey: "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",
-            region: "us-east-2",
-        });*/
-
-        const s3 = new AWS.S3();
-        const MAX_FILE_SIZE = 250 * 1024 * 1024;
-        const ALLOWED_EXTENSIONS = [".glb", ".png", ".jpg"];
-        const RATE_LIMIT_TIME = 60 * 1000;
-
-        let lastUploadTime = 0;
-        let selectedFile = null;
+        // تم حذف منطق AWS، هذه الصفحة الآن أداة مساعدة فقط.
         let isArabic = true;
 
         // Toggle language function
@@ -185,142 +166,40 @@
             isArabic = !isArabic;
             document.body.dir = isArabic ? "rtl" : "ltr";
             document.getElementById("languageToggle").textContent = isArabic ? "English" : "عربي";
-            document.getElementById("uploadTitle").textContent = isArabic ? "ارفع ملف" : "Upload File";
-            document.getElementById("dragDropText").textContent = isArabic ? "اسحب و افلت الملف هنا" : "Drag and drop file here";
-            document.getElementById("chooseFileLabel").textContent = isArabic ? "اختر ملف من الجهاز" : "Choose file from device";
-            document.getElementById("uploadButton").textContent = isArabic ? "أرفع" : "Upload";
+            document.getElementById("uploadTitle").textContent = isArabic ? "مساعد استخراج معرف الملف" : "File ID Helper";
+            document.getElementById("dragDropText").textContent = isArabic ? "ضع رابط المشاركة لملف Google Drive (\"مشاركة\" ثم انسخ الرابط)" : "Paste the shared Google Drive file link";
+            document.getElementById("chooseFileLabel").textContent = isArabic ? "رابط الملف:" : "File link:";
+            document.getElementById("extractButton").textContent = isArabic ? "استخرج المعرف" : "Extract ID";
+            document.getElementById("modelKeyLabel").textContent = isArabic ? "معرف الملف:" : "File ID:";
+            document.getElementById("randomKeyLabel").textContent = isArabic ? "(اختياري) مفتاح عرض قصير:" : "(Optional) Short display key:";
         });
-
-        function handleFile(file) {
-            if (file) {
-                const fileExtension = "." + file.name.split(".").pop().toLowerCase();
-                if (file.size > MAX_FILE_SIZE) {
-                    alert(isArabic ? "حجم الملف كبير جدًا، الحد الأقصى هو 250 ميغابايت." : "File is too large. Maximum size is 250MB.");
-                    return;
-                }
-                if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
-                    alert(isArabic ? "نوع الملف غير مدعوم. الملفات المدعومة: .glb, .png, .jpg" : "Invalid file type. Only .glb, .png, and .jpg files are allowed.");
-                    return;
-                }
-                selectedFile = file;
-                document.getElementById("uploadButton").disabled = false;
-                document.getElementById("status").textContent = isArabic ? `الملف المختار: ${file.name}` : `Selected file: ${file.name}`;
+        const statusEl = document.getElementById('status');
+        const fileIdField = document.getElementById('fileIdField');
+        const shortKeyField = document.getElementById('shortKeyField');
+        document.getElementById('extractButton').addEventListener('click', ()=>{
+            const link = document.getElementById('driveLink').value.trim();
+            if(!link){ statusEl.textContent = isArabic? 'أدخل الرابط أولاً' : 'Enter link first'; return; }
+            // استخراج FILE_ID من عدة أنماط شائعة
+            let idMatch = link.match(/\/d\/([A-Za-z0-9_-]+)/);
+            if(!idMatch){
+                // محاولة استخراج من id= أو open?id=
+                idMatch = link.match(/[?&]id=([A-Za-z0-9_-]+)/);
             }
-        }
-
-        document.getElementById("fileInput").addEventListener("change", function () {
-            handleFile(this.files[0]);
-        });
-        // Drag-and-drop area events
-        const dropArea = document.getElementById("dropArea");
-        const uploadButton = document.getElementById("uploadButton");
-        const fileStatus = document.getElementById("status");
-        const modelKeyField = document.getElementById("modelKey");
-        const progressBar = document.getElementById("progressBar");
-        const progressContainer = document.getElementById("progressContainer");
-
-        dropArea.addEventListener("dragover", (event) => {
-            event.preventDefault();
-            dropArea.classList.add("dragover");
-        });
-
-        dropArea.addEventListener("dragleave", () => {
-            dropArea.classList.remove("dragover");
-        });
-
-        dropArea.addEventListener("drop", (event) => {
-            event.preventDefault();
-            dropArea.classList.remove("dragover");
-            const file = event.dataTransfer.files[0];
-            handleFile(file);
-        });
-
-        // Upload button click event
-        uploadButton.addEventListener("click", async function () {
-            if (!selectedFile) {
-                alert(isArabic ? "لم يتم اختيار ملف." : "No file selected.");
+            if(!idMatch){
+                statusEl.textContent = isArabic? 'تعذر العثور على معرف الملف' : 'Could not find file ID';
                 return;
             }
-
-            const currentTime = new Date().getTime();
-            if (currentTime - lastUploadTime < RATE_LIMIT_TIME) {
-                alert(isArabic ? "انتظر دقيقة قبل الرفع مجددا." : "Please wait a minute before uploading again.");
-                return;
-            }
-
-            lastUploadTime = currentTime;
-
-            try {
-                const randomCode = generateRandomCode();
-                const fileNameWithCode = `${randomCode}_${selectedFile.name}`;
-
-                const params = {
-                    Bucket: "3dmodelsvalut",
-                    Key: fileNameWithCode,
-                    Expires: 60,
-                    ContentType: selectedFile.type,
-                };
-
-                s3.getSignedUrl("putObject", params, function (err, url) {
-                    if (err) {
-                        fileStatus.textContent = isArabic ? "خطأ في إنشاء رابط التحميل." : "Error generating upload link.";
-                        console.error("Error generating upload link:", err);
-                        return;
-                    }
-
-                    progressContainer.style.display = "block";
-
-                    const xhr = new XMLHttpRequest();
-                    xhr.open("PUT", url, true);
-                    xhr.setRequestHeader("Content-Type", selectedFile.type);
-
-                    xhr.upload.addEventListener("progress", function (e) {
-                        if (e.lengthComputable) {
-                            const percentCompleted = Math.round((e.loaded / e.total) * 100);
-                            progressBar.style.width = percentCompleted + "%";
-                            fileStatus.textContent = isArabic ? `جاري الرفع: ${percentCompleted}%` : `Uploading: ${percentCompleted}%`;
-                        }
-                    });
-
-                    xhr.onload = function () {
-                        if (xhr.status === 200) {
-                            fileStatus.textContent = isArabic ? "تم رفع الملف بنجاح!" : "File uploaded successfully!";
-                            modelKeyField.value = randomCode;
-                            progressBar.style.width = "100%";
-                            const modelKey = modelKeyField.value;
-                            const modelName = selectedFile.name;
-                            window.parent.postMessage(
-                                { action: "uploadModelData", modelKey, modelName },
-                                "*"
-                            );
-                        } else {
-                            fileStatus.textContent = isArabic ? "خطأ أثناء الرفع." : "Error during upload.";
-                            console.error(`Error: ${xhr.statusText}`);
-                        }
-                    };
-
-                    xhr.onerror = function () {
-                        fileStatus.textContent = isArabic ? "خطأ في الشبكة أثناء التحميل!" : "Network error during file upload!";
-                        console.error("Network error during file upload.");
-                    };
-
-                    xhr.send(selectedFile);
-                });
-            } catch (error) {
-                fileStatus.textContent = isArabic ? "حدث خطأ أثناء الرفع." : "An error occurred during upload.";
-                console.error(error);
-            }
+            const fileId = idMatch[1];
+            fileIdField.value = fileId;
+            // توليد مفتاح قصير اختياري (لا علاقة له بالمعرف الفعلي)
+            shortKeyField.value = generateShortKey();
+            statusEl.textContent = isArabic? 'تم استخراج المعرف. استخدمه في الصفحة الرئيسية.' : 'ID extracted. Use it on the main page.';
         });
-
-        // Generate a random code for the file name
-        function generateRandomCode(length = 10) {
-            const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-            let result = "";
-            for (let i = 0; i < length; i++) {
-                const randomIndex = Math.floor(Math.random() * characters.length);
-                result += characters[randomIndex];
-            }
-            return result;
+        function generateShortKey(length=10){
+            const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let o='';
+            for(let i=0;i<length;i++){ o+=chars[Math.floor(Math.random()*chars.length)]; }
+            return o;
         }
 
     </script>

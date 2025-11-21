@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Model & 360 Image Viewer with AR and AWS S3</title>
-    <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <title>3D Model & 360 Image Viewer (Google Drive)</title>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pannellum/build/pannellum.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
@@ -290,8 +289,12 @@
 
     <div id="controls">
         <button id="toggle-button" onclick="toggleControls()"></button>
-        <input type="text" id="model-prefix" placeholder="أدخل مفتاح النموذج" oninput="toggleButton()"> <!-- Placeholder in Arabic -->
-        <button id="load-button" style="display: none;" onclick="loadModel()">تحميل النموذج/الصورة</button>
+        <input type="text" id="model-prefix" placeholder="أدخل معرف الملف" oninput="toggleButton()"> <!-- Placeholder in Arabic -->
+        <select id="file-type" style="padding: 10px; border:none; border-radius:5px; background:#333; color:#fff; margin-bottom:10px; width:calc(80% - 20px);">
+            <option value="model">نموذج ثلاثي الأبعاد (.glb)</option>
+            <option value="panorama">صورة بانورامية (jpg/png)</option>
+        </select>
+        <button id="load-button" style="display: none;" onclick="loadModel()">تحميل المحتوى</button>
 
         <div id="qr-placeholder">
             <canvas id="qrcode" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);   margin-top: 30px;"></canvas>
@@ -301,14 +304,7 @@
     </div>
 
     <script>
-        AWS.config.update({
-            accessKeyId: "AKIA2UC3F6ZRB2ZJ2NVU",
-            secretAccessKey: "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",
-            region: "us-east-2",
-        });
-
-        const s3 = new AWS.S3();
-        const bucketName = '3dmodelsvalut';
+        // Removed AWS S3; now using public Google Drive file IDs.
         const modelViewer = document.getElementById('model-viewer');
         const panoViewer = document.getElementById('pano-viewer');
         const loadButton = document.getElementById('load-button');
@@ -320,23 +316,23 @@
         
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-        let loadedBytes = 0;
+        let loadedBytes = 0; // retained for progress text reuse
 
 
         // Define Arabic and English text content
         const textContent = {
             ar: {
                 loading: "جار التحميل...",
-                modelPlaceholder: "أدخل مفتاح النموذج",
-                loadModel: "تحميل النموذج/الصورة",
+                modelPlaceholder: "أدخل معرف الملف",
+                loadModel: "تحميل المحتوى",
                 saveQr: "حفظ   QR CODE",
                 arButton: "عرض في الواقع المعزز",
                 toggleLang: "English"
             },
             en: {
                 loading: "Loading content...",
-                modelPlaceholder: "Enter model key",
-                loadModel: "Load Model/Image",
+                modelPlaceholder: "Enter file ID",
+                loadModel: "Load Content",
                 saveQr: "Save QR Code",
                 arButton: "View in AR",
                 toggleLang: "Arabic"
@@ -431,88 +427,38 @@ function showLoadingScreen(show, totalBytes = 0) {
 
 // Modify loadModel function to get file size and show progress
 function loadModel() {
-    const prefix = document.getElementById('model-prefix').value;
-    if (prefix.length !== 10) {
-        alert('Please enter exactly 10 characters.');
-        return;
+    const fileId = document.getElementById('model-prefix').value.trim();
+    const fileType = document.getElementById('file-type').value;
+    if (!fileId) { alert('يرجى إدخال معرف الملف'); return; }
+    // Google Drive file IDs غالباً أطوال > 10، لا نفرض طول ثابت.
+    const fileUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    showLoadingScreen(true);
+    if (fileType === 'model') {
+        modelViewer.src = fileUrl;
+        modelViewer.style.display = 'block';
+        panoViewer.style.display = 'none';
+        // بعد التحميل سيتم إخفاء شاشة الانتظار عبر حدث load
+    } else {
+        modelViewer.style.display = 'none';
+        panoViewer.style.display = 'block';
+        pannellum.viewer('pano-viewer', {
+            type: 'equirectangular',
+            panorama: fileUrl,
+            autoLoad: true,
+            onload: () => showLoadingScreen(false),
+        });
     }
-
-    s3.listObjectsV2({ Bucket: bucketName, Prefix: prefix }, (err, data) => {
-        if (err) {
-            console.error('Error fetching bucket contents:', err);
-            alert('Error fetching bucket contents.');
-            return;
-        }
-
-        // Ensure data.Contents is defined and has items
-        if (data && data.Contents && data.Contents.length > 0) {
-            const key = data.Contents[0].Key;
-            const fileExtension = key.split('.').pop().toLowerCase();
-
-            const params = {
-                Bucket: bucketName,
-                Key: key,
-            };
-
-            s3.headObject(params, (err, metadata) => {
-                if (err) {
-                    console.error('Error getting file metadata:', err);
-                    alert('Error getting file metadata.');
-                    return;
-                }
-
-                const totalBytes = metadata.ContentLength;
-                showLoadingScreen(true, totalBytes);
-
-                s3.getObject(params)
-                    .on('httpDownloadProgress', (progress) => {
-                        loadedBytes = progress.loaded;
-                    })
-                    .send((err, data) => {
-                        if (err) {
-                            console.error('Error loading object:', err);
-                            alert('Error loading object.');
-                            showLoadingScreen(false);
-                            return;
-                        }
-
-                        // Process loaded file based on file type
-                        const fileUrl = `https://${bucketName}.s3.us-east-2.amazonaws.com/${key}`;
-                        if (fileExtension === 'gltf' || fileExtension === 'glb') {
-                            modelViewer.src = fileUrl;
-                            modelViewer.style.display = 'block';
-                            panoViewer.style.display = 'none';
-                        } else if (fileExtension === 'jpg' || fileExtension === 'jpeg' || fileExtension === 'png') {
-                            modelViewer.style.display = 'none';
-                            panoViewer.style.display = 'block';
-                            pannellum.viewer('pano-viewer', {
-                                type: 'equirectangular',
-                                panorama: fileUrl,
-                                autoLoad: true,
-                                onload: () => showLoadingScreen(false), // Add this onload callback here
-                            });
-                        } else {
-                            alert('Unsupported file format.');
-                            showLoadingScreen(false);
-                        }
-// Attach the model key to the URL
-const newUrl = `${window.location.origin}${window.location.pathname}?model=${prefix}`;
-window.history.replaceState(null, '', newUrl);
-
-// Generate and display QR code for the updated URL with the model key
-qrCodeContainer.innerHTML = ""; // Clear previous QR code
-QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
-    if (error) console.error(error);
-    console.log('QR code generated for model URL!');
-});
-
-                        showLoadingScreen(false);
-                    });
-            });
-        } else {
-            alert('No model/image found with the given prefix.');
-        }
+    // تحديث الرابط للـ QR
+    const newUrl = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(fileId)}&type=${fileType}`;
+    window.history.replaceState(null, '', newUrl);
+    qrCodeContainer.innerHTML = "";
+    QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
+        if (error) console.error(error);
     });
+    if (fileType === 'model') {
+        // إذا لم يطلق حدث load (فشل)، نخفي شاشة التحميل بعد مهلة احتياطية
+        setTimeout(()=>{ showLoadingScreen(false); }, 8000);
+    }
 }
 
 
@@ -520,9 +466,11 @@ QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
 
 
         window.addEventListener('DOMContentLoaded', () => {
-            const modelKey = getQueryParam('model');
-            if (modelKey) {
-                document.getElementById('model-prefix').value = modelKey;
+            const existingId = getQueryParam('id');
+            const existingType = getQueryParam('type');
+            if (existingId) {
+                document.getElementById('model-prefix').value = existingId;
+                if (existingType) document.getElementById('file-type').value = existingType;
                 toggleButton();
                 loadModel();
             }
