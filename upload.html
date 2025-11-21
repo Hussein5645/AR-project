@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Model Upload</title>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1482.0.min.js"></script>
+    <script src="https://static.parastorage.com/services/js-sdk/1.190.0/js/wixData.js"></script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4681841565229362" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            color: #333;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            direction: rtl; /* Default to Arabic (RTL) */
+        }
+        /* Black overlay covering the entire screen */
+        .black-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7); /* Black with 70% opacity */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 9999; /* Ensures it's on top of other elements */
+        }
+
+        /* Overlay content styling */
+        .overlay-content {
+            text-align: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.329); /* Slightly visible background for content box */
+            border-radius: 8px;
+            max-width: 300px;
+        }
+        .container {
+            width: 400px;
+            background: #e0e0e0;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .language-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #d6bd73;
+            color: #333;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .language-toggle:hover {
+            background: #b49a5c;
+        }
+        /* Additional styling */
+        h1 {
+            margin-bottom: 20px;
+            color: #666;
+        }
+        .drop-area {
+            border: 2px dashed #666;
+            border-radius: 10px;
+            padding: 40px;
+            margin-bottom: 20px;
+            background: #fff;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .drop-area.dragover {
+            background: #f0f0f0;
+        }
+        .drop-area p {
+            color: #666;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+            color: #D6BD73;
+            cursor: pointer;
+        }
+        #uploadButton {
+            background: #FFF86B;
+            color: #333;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        #uploadButton:hover {
+            background: #d7d057;
+        }
+        .model-key-container {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 1.2em;
+            color: #666;
+        }
+        #progressContainer {
+            width: 100%;
+            background: #ccc;
+            border-radius: 5px;
+            overflow: hidden;
+            display: none;
+            margin-top: 20px;
+        }
+        #progressBar {
+            height: 20px;
+            width: 0;
+            background: #D6BD73;
+            border-radius: 5px;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="language-toggle" id="languageToggle">English</div>
+
+    <!-- Transparent Black Overlay -->
+    <div class="black-overlay">
+        <div class="overlay-content">
+            <h2> غير متوفر</h2>
+            <p>هذه الخدمة غير متوفر حاليا للرفع تواصل مع </p>
+            <p>@txtx9  </p>
+            <p>على التلكرام </p>
+        </div>
+    </div>
+    <div class="container">
+        <h1 id="uploadTitle">ارفع ملف</h1>
+        <div class="drop-area" id="dropArea">
+            <p id="dragDropText">اسحب و افلت الملف هنا</p>
+            <p>او</p>
+            <label id="chooseFileLabel" for="fileInput">اختر ملف من الجهاز</label>
+            <input type="file" id="fileInput" accept=".glb, .png, .jpg" />
+        </div>
+        <div class="model-key-container">
+            <span class="model-key-label" id="modelKeyLabel">Model Key:</span>
+            <input type="text" id="modelKey" readonly placeholder="Model Key will appear here" />
+        </div>
+        <button id="uploadButton" disabled>أرفع</button>
+        <div id="status">---</div>
+        <div id="progressContainer">
+            <div id="progressBar"></div>
+        </div>
+    </div>
+    <script>
+        // Initialize AWS
+       /* AWS.config.update({
+            accessKeyId: "AKIA2UC3F6ZRB2ZJ2NVU",
+            secretAccessKey: "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",
+            region: "us-east-2",
+        });*/
+
+        const s3 = new AWS.S3();
+        const MAX_FILE_SIZE = 250 * 1024 * 1024;
+        const ALLOWED_EXTENSIONS = [".glb", ".png", ".jpg"];
+        const RATE_LIMIT_TIME = 60 * 1000;
+
+        let lastUploadTime = 0;
+        let selectedFile = null;
+        let isArabic = true;
+
+        // Toggle language function
+        document.getElementById("languageToggle").addEventListener("click", () => {
+            isArabic = !isArabic;
+            document.body.dir = isArabic ? "rtl" : "ltr";
+            document.getElementById("languageToggle").textContent = isArabic ? "English" : "عربي";
+            document.getElementById("uploadTitle").textContent = isArabic ? "ارفع ملف" : "Upload File";
+            document.getElementById("dragDropText").textContent = isArabic ? "اسحب و افلت الملف هنا" : "Drag and drop file here";
+            document.getElementById("chooseFileLabel").textContent = isArabic ? "اختر ملف من الجهاز" : "Choose file from device";
+            document.getElementById("uploadButton").textContent = isArabic ? "أرفع" : "Upload";
+        });
+
+        function handleFile(file) {
+            if (file) {
+                const fileExtension = "." + file.name.split(".").pop().toLowerCase();
+                if (file.size > MAX_FILE_SIZE) {
+                    alert(isArabic ? "حجم الملف كبير جدًا، الحد الأقصى هو 250 ميغابايت." : "File is too large. Maximum size is 250MB.");
+                    return;
+                }
+                if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
+                    alert(isArabic ? "نوع الملف غير مدعوم. الملفات المدعومة: .glb, .png, .jpg" : "Invalid file type. Only .glb, .png, and .jpg files are allowed.");
+                    return;
+                }
+                selectedFile = file;
+                document.getElementById("uploadButton").disabled = false;
+                document.getElementById("status").textContent = isArabic ? `الملف المختار: ${file.name}` : `Selected file: ${file.name}`;
+            }
+        }
+
+        document.getElementById("fileInput").addEventListener("change", function () {
+            handleFile(this.files[0]);
+        });
+        // Drag-and-drop area events
+        const dropArea = document.getElementById("dropArea");
+        const uploadButton = document.getElementById("uploadButton");
+        const fileStatus = document.getElementById("status");
+        const modelKeyField = document.getElementById("modelKey");
+        const progressBar = document.getElementById("progressBar");
+        const progressContainer = document.getElementById("progressContainer");
+
+        dropArea.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            dropArea.classList.add("dragover");
+        });
+
+        dropArea.addEventListener("dragleave", () => {
+            dropArea.classList.remove("dragover");
+        });
+
+        dropArea.addEventListener("drop", (event) => {
+            event.preventDefault();
+            dropArea.classList.remove("dragover");
+            const file = event.dataTransfer.files[0];
+            handleFile(file);
+        });
+
+        // Upload button click event
+        uploadButton.addEventListener("click", async function () {
+            if (!selectedFile) {
+                alert(isArabic ? "لم يتم اختيار ملف." : "No file selected.");
+                return;
+            }
+
+            const currentTime = new Date().getTime();
+            if (currentTime - lastUploadTime < RATE_LIMIT_TIME) {
+                alert(isArabic ? "انتظر دقيقة قبل الرفع مجددا." : "Please wait a minute before uploading again.");
+                return;
+            }
+
+            lastUploadTime = currentTime;
+
+            try {
+                const randomCode = generateRandomCode();
+                const fileNameWithCode = `${randomCode}_${selectedFile.name}`;
+
+                const params = {
+                    Bucket: "3dmodelsvalut",
+                    Key: fileNameWithCode,
+                    Expires: 60,
+                    ContentType: selectedFile.type,
+                };
+
+                s3.getSignedUrl("putObject", params, function (err, url) {
+                    if (err) {
+                        fileStatus.textContent = isArabic ? "خطأ في إنشاء رابط التحميل." : "Error generating upload link.";
+                        console.error("Error generating upload link:", err);
+                        return;
+                    }
+
+                    progressContainer.style.display = "block";
+
+                    const xhr = new XMLHttpRequest();
+                    xhr.open("PUT", url, true);
+                    xhr.setRequestHeader("Content-Type", selectedFile.type);
+
+                    xhr.upload.addEventListener("progress", function (e) {
+                        if (e.lengthComputable) {
+                            const percentCompleted = Math.round((e.loaded / e.total) * 100);
+                            progressBar.style.width = percentCompleted + "%";
+                            fileStatus.textContent = isArabic ? `جاري الرفع: ${percentCompleted}%` : `Uploading: ${percentCompleted}%`;
+                        }
+                    });
+
+                    xhr.onload = function () {
+                        if (xhr.status === 200) {
+                            fileStatus.textContent = isArabic ? "تم رفع الملف بنجاح!" : "File uploaded successfully!";
+                            modelKeyField.value = randomCode;
+                            progressBar.style.width = "100%";
+                            const modelKey = modelKeyField.value;
+                            const modelName = selectedFile.name;
+                            window.parent.postMessage(
+                                { action: "uploadModelData", modelKey, modelName },
+                                "*"
+                            );
+                        } else {
+                            fileStatus.textContent = isArabic ? "خطأ أثناء الرفع." : "Error during upload.";
+                            console.error(`Error: ${xhr.statusText}`);
+                        }
+                    };
+
+                    xhr.onerror = function () {
+                        fileStatus.textContent = isArabic ? "خطأ في الشبكة أثناء التحميل!" : "Network error during file upload!";
+                        console.error("Network error during file upload.");
+                    };
+
+                    xhr.send(selectedFile);
+                });
+            } catch (error) {
+                fileStatus.textContent = isArabic ? "حدث خطأ أثناء الرفع." : "An error occurred during upload.";
+                console.error(error);
+            }
+        });
+
+        // Generate a random code for the file name
+        function generateRandomCode(length = 10) {
+            const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            let result = "";
+            for (let i = 0; i < length; i++) {
+                const randomIndex = Math.floor(Math.random() * characters.length);
+                result += characters[randomIndex];
+            }
+            return result;
+        }
+
+    </script>
+</body>
+</html>
