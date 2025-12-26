@@ -59,6 +59,8 @@
     #xr-image-indicator .status { font-size: 14px; color: #bbb; }
     #xr-image-indicator.scanning { box-shadow: 0 0 12px rgba(0,255,170,0.35); border: 1px solid rgba(0,255,170,0.35); }
     #xr-image-indicator.scanning::after { content: ''; display: block; width: 26px; height: 26px; border: 3px solid #00ffaa; border-right-color: transparent; border-radius: 50%; margin: 10px auto 0; animation: spin 1s linear infinite; }
+    #xr-image-indicator.found { border: 2px solid #00ffaa; box-shadow: 0 0 20px rgba(0,255,170,0.6); background: rgba(0,0,0,0.9); }
+    #xr-image-indicator.found .status { color: #00ffaa; font-weight: bold; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     /* Anchor scan visual (screen-center dots) */
     #anchor-scan-visual { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 180px; height: 180px; pointer-events: none; display: none; z-index: 27; }
@@ -100,6 +102,11 @@
     .modal-buttons .btn-danger:hover { background: #c82333; }
     .modal-buttons .btn-secondary { background: #6c757d; color: #fff; }
     .modal-buttons .btn-secondary:hover { background: #5a6268; }
+
+    /* Force MindAR video/canvas to fill the viewport in portrait */
+    .mindar-video, .mindar-canvas { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; object-fit: cover !important; }
+    .mindar-canvas { z-index: 1 !important; }
+    .mindar-video { z-index: 0 !important; }
   </style>
 </head>
 <body lang="ar">
@@ -891,8 +898,14 @@
         xrSurfaceIndicator.style.display = 'none';
         xrImageIndicator.style.display = 'block';
         xrImageIndicator.classList.add('scanning');
+        xrImageIndicator.classList.remove('found');
         anchorScanVisual.style.display = 'block';
         xrControls.style.display = 'none';
+        xrSaveAWSBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
+        xrResetBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
+        xrScaleInput.disabled = currentMode !== 'edit';
+        xrRotateInput.disabled = currentMode !== 'edit';
+        xrPinBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
 
         status.textContent = textContent[document.documentElement.lang].statusAR;
         const currentLang = document.documentElement.lang;
@@ -969,6 +982,15 @@
       mindarRenderer = mindarThree.renderer;
       mindarScene = mindarThree.scene;
       mindarCamera = mindarThree.camera;
+      mindarRenderer.domElement.classList.add('mindar-canvas');
+      mindarRenderer.setSize(window.innerWidth, window.innerHeight);
+      const videoEl = mindarThree.video;
+      if (videoEl) {
+        videoEl.classList.add('mindar-video');
+        videoEl.style.objectFit = 'cover';
+        videoEl.style.width = '100vw';
+        videoEl.style.height = '100vh';
+      }
       // Add some light
       const hemi2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
       mindarScene.add(hemi2);
@@ -978,6 +1000,13 @@
         anchorReady = true;
         anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
         xrImageIndicator.style.display = 'none';
+        xrImageIndicator.classList.remove('scanning');
+        xrImageIndicator.classList.add('found');
+        xrImageIndicator.style.display = 'block';
+        imageTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
+        setTimeout(() => {
+          xrImageIndicator.style.display = 'none';
+        }, 1200);
         anchorScanVisual.style.display = 'none';
         surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
         // Attach model to anchor group
@@ -993,14 +1022,22 @@
           }
           model.visible = true;
           placed = true;
-          xrControls.style.display = 'block';
-          xrScaleInput.value = model.scale.x;
-          xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          if (currentMode === 'edit') {
+            xrControls.style.display = 'block';
+            xrScaleInput.value = model.scale.x;
+            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          } else {
+            xrControls.style.display = 'none';
+          }
         }
       };
       mindarAnchor.onTargetLost = () => {
         anchorReady = false;
         anchorPoseMatrix = null;
+        xrImageIndicator.classList.remove('found');
+        xrImageIndicator.classList.add('scanning');
+        xrImageIndicator.style.display = 'block';
+        imageTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
         surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
       };
 
@@ -1105,7 +1142,7 @@
           mindarAnchor.group.remove(model);
         }
         // Hide controls and re-show surface indicator
-        xrControls.style.display = 'none';
+        xrControls.style.display = currentMode === 'edit' ? 'none' : 'none';
         xrSurfaceIndicator.style.display = currentMode === 'edit' ? 'block' : 'none';
         anchorScanVisual.style.display = 'block';
         if (trackedImageBitmap) {
@@ -1199,6 +1236,14 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+
+      if (mindarRenderer) {
+        mindarRenderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      if (mindarThree && mindarThree.video) {
+        mindarThree.video.style.width = '100vw';
+        mindarThree.video.style.height = '100vh';
+      }
     });
 
     // Initialize Arabic as default and auto-load model
