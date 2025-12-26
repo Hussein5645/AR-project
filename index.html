@@ -477,7 +477,7 @@ function loadModel() {
                         }
 
                         // Process loaded file based on file type
-                        const fileUrl = `https://${bucketName}.s3.us-east-2.amazonaws.com/${key}`;
+                        const fileUrl = `https://${bucketName}.s3.eu-north-1.amazonaws.com/${key}`;
                         if (fileExtension === 'gltf' || fileExtension === 'glb') {
                             modelViewer.src = fileUrl;
                             modelViewer.style.display = 'block';
@@ -578,3 +578,4 @@ QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
 </script>
 </body>
 </html>
+
