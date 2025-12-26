@@ -52,6 +52,10 @@
     #xr-pin-btn { padding: 16px 32px; border: none; border-radius: 50px; background: #00ffaa; color: #000; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(0,255,170,0.4); transition: all 0.3s; }
     #xr-pin-btn:hover { background: #00dd88; transform: scale(1.05); box-shadow: 0 6px 20px rgba(0,255,170,0.6); }
     #xr-pin-btn:active { transform: scale(0.95); }
+    /* Image tracking indicator */
+    #xr-image-indicator { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 8px; display: none; min-width: 260px; text-align: center; z-index: 26; }
+    #xr-image-indicator .icon { font-size: 28px; margin-bottom: 6px; }
+    #xr-image-indicator .status { font-size: 14px; color: #bbb; }
     
     /* Modal Dialogs */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
@@ -89,6 +93,10 @@
       <div class="icon">⊕</div>
       <div id="surface-text">ابحث عن سطح</div>
       <button id="xr-pin-btn">📍 تثبيت الموقع</button>
+    </div>
+    <div id="xr-image-indicator">
+      <div class="icon">🖼️</div>
+      <div id="image-text" class="status">جار البحث عن الصورة المرجعية...</div>
     </div>
     
     <div id="xr-controls">
@@ -249,6 +257,8 @@
     const xrControls = document.getElementById('xr-controls');
     const xrSurfaceIndicator = document.getElementById('xr-surface-indicator');
     const surfaceTextEl = document.getElementById('surface-text');
+    const xrImageIndicator = document.getElementById('xr-image-indicator');
+    const imageTextEl = document.getElementById('image-text');
     const xrScaleInput = document.getElementById('xr-scale');
     const xrScaleVal = document.getElementById('xr-scale-val');
     const xrRotateInput = document.getElementById('xr-rotate');
@@ -463,6 +473,7 @@
     let trackedImageBitmap = null;
     let trackedImageWidth = 0.20; // meters; adjust as needed for sightlogo.png real size
     const trackedImageId = 'sightlogo.png';
+    let imageTrackingSupported = false;
 
     const loader = new GLTFLoader();
 
@@ -792,7 +803,7 @@
         renderer.domElement.classList.add('active');
         // Load tracked image (visual reference)
         await loadTrackedImage();
-        const sessionInit = {
+        let sessionInit = {
           requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
           optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
           domOverlay: { root: xrOverlay }
@@ -801,7 +812,20 @@
           // Provide tracked image descriptor if available
           sessionInit.trackedImages = [{ image: trackedImageBitmap, widthInMeters: trackedImageWidth }];
         }
-        xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
+        try {
+          xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
+          imageTrackingSupported = !!trackedImageBitmap;
+        } catch (eReq) {
+          console.warn('Request session with image tracking failed, retrying without image tracking:', eReq);
+          imageTrackingSupported = false;
+          // Retry without trackedImages and image-tracking
+          sessionInit = {
+            requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
+            optionalFeatures: ['anchors', 'dom-overlay'],
+            domOverlay: { root: xrOverlay }
+          };
+          xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
+        }
         renderer.xr.setSession(xrSession);
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
         if (mode === 'edit') {
@@ -815,7 +839,8 @@
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
         document.getElementById('lang-toggle').style.display = 'none';
-        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'block';
+        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'none';
+        xrImageIndicator.style.display = (trackedImageBitmap ? 'block' : 'none');
         xrControls.style.display = 'none';
         
         xrSession.addEventListener('end', () => {
@@ -840,9 +865,12 @@
 
         // Setup UI message depending on mode and marker requirement
         const currentLang = document.documentElement.lang;
-        if (mode === 'show') {
-          surfaceTextEl.textContent = currentLang === 'ar' ? 'اعثر على الصورة المرجعية لعرض النموذج' : 'Find the reference image to show the model';
-        } else {
+        if (trackedImageBitmap) {
+          imageTextEl.textContent = currentLang === 'ar' ? 'جار البحث عن الصورة المرجعية...' : 'Scanning for the reference image...';
+        } else if (!imageTrackingSupported) {
+          imageTextEl.textContent = currentLang === 'ar' ? 'تتبّع الصور غير مدعوم على هذا الجهاز' : 'Image tracking is not supported on this device';
+        }
+        if (mode === 'edit') {
           surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح أو الصورة المرجعية' : 'Find a surface or the reference image';
         }
 
@@ -877,8 +905,8 @@
       const session = renderer.xr.getSession();
       if (!session) return;
       const pose = frame.getViewerPose(xrRefSpace);
-      // Image tracking results: update marker state
-      if (frame.getImageTrackingResults) {
+      // Image tracking results: update marker state and indicator
+      if (imageTrackingSupported && frame.getImageTrackingResults) {
         const results = frame.getImageTrackingResults();
         if (results && results.length > 0) {
           for (const result of results) {
@@ -888,6 +916,8 @@
               if (mp) {
                 markerFound = true;
                 markerPoseMatrix = new THREE.Matrix4().fromArray(mp.transform.matrix);
+                const currentLang = document.documentElement.lang;
+                imageTextEl.textContent = currentLang === 'ar' ? 'تم العثور على الصورة المرجعية ✅' : 'Reference image found ✅';
                 // If we have relative pin data and not yet placed, place now
                 if (!placed && existingPinData && existingPinData.relative) {
                   applyPinDataRelativeToMarker(existingPinData);
@@ -905,6 +935,9 @@
               }
             }
           }
+        } else {
+          const currentLang = document.documentElement.lang;
+          imageTextEl.textContent = currentLang === 'ar' ? 'جار البحث عن الصورة المرجعية...' : 'Scanning for the reference image...';
         }
       }
       if (hitTestSource && pose) {
@@ -1023,9 +1056,15 @@ function placeModel() {
       if (model) {
         model.visible = false;
         placed = false;
+        markerFound = false;
         // Hide controls and re-show surface indicator
         xrControls.style.display = 'none';
-        xrSurfaceIndicator.style.display = 'block';
+        xrSurfaceIndicator.style.display = currentMode === 'edit' ? 'block' : 'none';
+        if (trackedImageBitmap) {
+          const currentLang = document.documentElement.lang;
+          imageTextEl.textContent = currentLang === 'ar' ? 'جار البحث عن الصورة المرجعية...' : 'Scanning for the reference image...';
+          xrImageIndicator.style.display = 'block';
+        }
         reticle.visible = false;
       }
     });
