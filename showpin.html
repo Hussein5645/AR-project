@@ -129,7 +129,10 @@
       if (!encoded) return null;
       // Try Base64 / Base64-URL
       try {
-        let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+        let clean = encoded.trim().replace(/\s+/g, '');
+        // Normalize variants: '.' sometimes used as '+' in non-standard encodings
+        clean = clean.replace(/\./g, '+');
+        let b64 = clean.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
         if (pad) b64 += '='.repeat(4 - pad);
         const jsonStr = atob(b64);
@@ -167,18 +170,9 @@
         for (const item of listResult.Contents) {
           const key = item.Key;
           if (key.includes('_PINNED_')) {
-            // Prefer capturing up to the next dot (file extension)
-            let m = key.match(/_PINNED_([^\.]+)\./);
-            if (!m) {
-              // Fallback: capture until end, then strip common extensions
-              const m2 = key.match(/_PINNED_(.+)$/);
-              if (m2 && m2[1]) {
-                const tail = m2[1];
-                pinDataEncoded = tail.replace(/\.(glb|gltf|vrm|fbx|obj|usd|usdz)$/i, '');
-                modelFile = key;
-                break;
-              }
-            } else if (m[1]) {
+            // Capture only Base64-URL chars following _PINNED_
+            const m = key.match(/_PINNED_([A-Za-z0-9\-_]+)(?:_|\.|$)/);
+            if (m && m[1]) {
               pinDataEncoded = m[1];
               modelFile = key;
               break;
