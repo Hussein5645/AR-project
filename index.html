@@ -117,24 +117,25 @@
             background-color: #555;
             transform: scale(1.1);
         }
-    
-        #controls.hidden {
-            display: none;
-        }
-    
-        #controls-toggle-button.hide-icon {
-            background-image: url('icon/hide.png');
-        }
-    
-        #q-placeholder {
-            display: none;
-            width: 100px;
-            height: 100px;
-            background: #555;
-            border-radius: 10px;
-            margin: 20px auto;
-            position: relative;
-        }
+
+    #pin-Button {
+        position: fixed;
+        bottom: 10px;
+        right: 130px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #444 url('icon/ar.png') center center no-repeat;
+        background-size: 20px 20px;
+        cursor: pointer;
+        z-index: 15;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+
+    #pin-Button:hover {
+        background-color: #555;
+        transform: scale(1.1);
+    }
     
         input[type="text"] {
             padding: 10px;
@@ -288,6 +289,7 @@
 
     <button id="controls-toggle-button" onclick="toggleControlsVisibility()"></button>
     <button id="upload-Button" onclick="window.location.href='upload.html'"></button>
+    <button id="pin-Button" onclick="window.location.href='pin.html'"></button>
 
     <div id="controls">
         <button id="toggle-button" onclick="toggleControls()"></button>
