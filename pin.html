@@ -6,7 +6,6 @@
   <title>Pin AR Model (WebXR)</title>
   <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
   <script src="aws-config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
   <style>
     body[lang="ar"] { direction: rtl; }
     body[lang="en"] { direction: ltr; }
@@ -21,7 +20,6 @@
     #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { font-size: 12px; color: #bbb; margin-top: 4px; }
     #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
-    #qrcode-wrap { margin-top: 8px; display: none; }
     canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
     #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
     #loading-screen.hidden { opacity: 0; pointer-events: none; }
@@ -29,6 +27,25 @@
     #ar-overlay button { width: 100%; margin: 5px 0; padding: 12px; border: none; border-radius: 6px; background: #28a745; color: #fff; font-weight: bold; cursor: pointer; }
     #ar-overlay button:hover { background: #218838; }
     #ar-overlay p { margin: 5px 0; font-size: 14px; color: #bbb; }
+    
+    #xr-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+    #xr-overlay > * { pointer-events: auto; }
+    #xr-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 20px; border-radius: 12px; display: none; min-width: 320px; }
+    body[lang="ar"] #xr-controls { direction: rtl; }
+    body[lang="en"] #xr-controls { direction: ltr; }
+    #xr-controls h3 { margin: 0 0 15px 0; font-size: 16px; color: #fff; text-align: center; }
+    #xr-controls .control-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    #xr-controls label { color: #fff; font-size: 14px; min-width: 60px; }
+    #xr-controls input[type="range"] { flex: 1; }
+    #xr-controls .value-display { color: #0f0; font-weight: bold; min-width: 60px; text-align: center; }
+    #xr-controls button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin: 5px 0; font-size: 14px; }
+    #xr-controls .btn-primary { background: #28a745; color: #fff; }
+    #xr-controls .btn-primary:hover { background: #218838; }
+    #xr-controls .btn-secondary { background: #6c757d; color: #fff; }
+    #xr-controls .btn-secondary:hover { background: #5a6268; }
+    #xr-controls .status-text { color: #ffc107; font-size: 13px; text-align: center; margin: 10px 0; }
+    #xr-surface-indicator { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffaa; font-size: 18px; text-align: center; display: none; pointer-events: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
+    #xr-surface-indicator .icon { font-size: 48px; margin-bottom: 10px; }
   </style>
 </head>
 <body lang="ar">
@@ -40,34 +57,42 @@
     <button id="save-pin-aws">حفظ بيانات التثبيت في AWS</button>
   </div>
 
+  <div id="xr-overlay">
+    <div id="xr-surface-indicator">
+      <div class="icon">⊕</div>
+      <div id="surface-text">ابحث عن سطح واضغط للتثبيت</div>
+    </div>
+    
+    <div id="xr-controls">
+      <h3 id="xr-title">إعدادات النموذج</h3>
+      
+      <div class="control-row">
+        <label id="xr-scale-label">الحجم:</label>
+        <input id="xr-scale" type="range" min="0.1" max="5" step="0.01" value="1" />
+        <span id="xr-scale-val" class="value-display">1.00×</span>
+      </div>
+      
+      <div class="control-row">
+        <label id="xr-rotate-label">الدوران:</label>
+        <input id="xr-rotate" type="range" min="0" max="360" step="1" value="0" />
+        <span id="xr-rotate-val" class="value-display">0°</span>
+      </div>
+      
+      <p id="xr-status" class="status-text">النموذج مثبت - اضبط الإعدادات</p>
+      
+      <button id="xr-save-aws" class="btn-primary">حفظ في AWS</button>
+      <button id="xr-reset" class="btn-secondary">إعادة التثبيت</button>
+    </div>
+  </div>
+
   <div id="ui">
     <h2 id="title">تثبيت النموذج في الواقع المعزز</h2>
 
     <div class="row">
-      <input id="model-prefix" type="text" maxlength="10" placeholder="أدخل مفتاح النموذج (10 أحرف)" />
-      <button id="load-btn">تحميل</button>
-    </div>
-
-    <div class="row">
       <button id="start-ar" disabled>بدء AR (WebXR)</button>
-      <button id="reset" class="secondary" disabled>إعادة الضبط</button>
     </div>
 
-    <div class="row">
-      <label id="scale-label" for="scale">الحجم:</label>
-      <input id="scale" type="range" min="0.1" max="5" step="0.01" value="1" disabled />
-      <span id="scale-val">1.00×</span>
-    </div>
-
-    <div class="row">
-      <button id="copy-placement" class="secondary" disabled>نسخ بيانات التثبيت</button>
-      <button id="save-placement" class="secondary" disabled>حفظ البيانات محلياً</button>
-    </div>
-
-    <div id="status">جاهز. يتطلب Chrome على Android لدعم WebXR.</div>
-    <div id="qrcode-wrap">
-      <canvas id="qrcode"></canvas>
-    </div>
+    <div id="status">جار تحميل النموذج...</div>
   </div>
 
   <script type="importmap">
@@ -87,29 +112,41 @@
     const textContent = {
       ar: {
         title: 'تثبيت النموذج في الواقع المعزز',
-        prefixPH: 'أدخل مفتاح النموذج (10 أحرف)',
-        load: 'تحميل', startAR: 'بدء AR (WebXR)', reset: 'إعادة الضبط',
-        scale: 'الحجم:', copy: 'نسخ بيانات التثبيت', save: 'حفظ البيانات محلياً',
+        startAR: 'بدء AR (WebXR)',
         statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
-        statusAR: 'تحريك الهاتف بحثاً عن سطح. اضغط للتثبيت.',
+        statusLoading: 'جار تحميل النموذج...',
+        statusError: 'خطأ: يجب تحميل نموذج من الصفحة الرئيسية أولاً',
         loading: 'جار التحميل...',
         arOverlay: 'النموذج مثبت! احفظ الموقع؟',
         savePinAWS: 'حفظ بيانات التثبيت في AWS',
-        toggleLang: 'English'
+        toggleLang: 'English',
+        xrTitle: 'إعدادات النموذج',
+        xrScaleLabel: 'الحجم:',
+        xrRotateLabel: 'الدوران:',
+        xrStatus: 'النموذج مثبت - اضبط الإعدادات',
+        xrSaveAWS: 'حفظ في AWS',
+        xrReset: 'إعادة التثبيت',
+        surfaceText: 'ابحث عن سطح واضغط للتثبيت'
       },
       en: {
         title: 'Pin the Model in AR',
-        prefixPH: 'Enter 10-char model key',
-        load: 'Load', startAR: 'Start AR (WebXR)', reset: 'Reset',
-        scale: 'Scale:', copy: 'Copy Placement Data', save: 'Save Locally',
+        startAR: 'Start AR (WebXR)',
         statusReady: 'Ready. Requires Chrome on Android with WebXR.',
         statusLoaded: 'Model loaded. Tap Start AR.',
-        statusAR: 'Move phone to find a surface. Tap to pin.',
+        statusLoading: 'Loading model...',
+        statusError: 'Error: Please load a model from home page first',
         loading: 'Loading content...',
         arOverlay: 'Model pinned! Save location?',
         savePinAWS: 'Save Pin Data to AWS',
-        toggleLang: 'Arabic'
+        toggleLang: 'Arabic',
+        xrTitle: 'Model Settings',
+        xrScaleLabel: 'Scale:',
+        xrRotateLabel: 'Rotate:',
+        xrStatus: 'Model placed - adjust settings',
+        xrSaveAWS: 'Save to AWS',
+        xrReset: 'Reposition',
+        surfaceText: 'Find a surface and tap to place'
       }
     };
 
@@ -118,35 +155,35 @@
       document.body.setAttribute('lang', lang);
       const t = textContent[lang];
       title.textContent = t.title;
-      prefix.placeholder = t.prefixPH;
-      loadBtn.textContent = t.load;
       startARBtn.textContent = t.startAR;
-      resetBtn.textContent = t.reset;
-      scaleLabel.textContent = t.scale;
-      copyBtn.textContent = t.copy;
-      saveBtn.textContent = t.save;
-      status.textContent = t.statusReady;
       document.getElementById('loading-screen').textContent = t.loading;
       document.getElementById('ar-overlay-text').textContent = t.arOverlay;
       document.getElementById('save-pin-aws').textContent = t.savePinAWS;
       langToggle.textContent = t.toggleLang;
+      document.getElementById('xr-title').textContent = t.xrTitle;
+      document.getElementById('xr-scale-label').textContent = t.xrScaleLabel;
+      document.getElementById('xr-rotate-label').textContent = t.xrRotateLabel;
+      document.getElementById('xr-status').textContent = t.xrStatus;
+      document.getElementById('xr-save-aws').textContent = t.xrSaveAWS;
+      document.getElementById('xr-reset').textContent = t.xrReset;
+      document.getElementById('surface-text').textContent = t.surfaceText;
     }
 
     const langToggle = document.getElementById('lang-toggle');
     const title = document.getElementById('title');
-    const prefix = document.getElementById('model-prefix');
-    const loadBtn = document.getElementById('load-btn');
     const startARBtn = document.getElementById('start-ar');
-    const resetBtn = document.getElementById('reset');
-    const scaleInput = document.getElementById('scale');
-    const scaleVal = document.getElementById('scale-val');
-    const scaleLabel = document.getElementById('scale-label');
-    const copyBtn = document.getElementById('copy-placement');
-    const saveBtn = document.getElementById('save-placement');
     const status = document.getElementById('status');
-    const qrWrap = document.getElementById('qrcode-wrap');
-    const qrCanvas = document.getElementById('qrcode');
     const loadingScreen = document.getElementById('loading-screen');
+    
+    const xrOverlay = document.getElementById('xr-overlay');
+    const xrControls = document.getElementById('xr-controls');
+    const xrSurfaceIndicator = document.getElementById('xr-surface-indicator');
+    const xrScaleInput = document.getElementById('xr-scale');
+    const xrScaleVal = document.getElementById('xr-scale-val');
+    const xrRotateInput = document.getElementById('xr-rotate');
+    const xrRotateVal = document.getElementById('xr-rotate-val');
+    const xrSaveAWSBtn = document.getElementById('xr-save-aws');
+    const xrResetBtn = document.getElementById('xr-reset');
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     let loadedBytes = 0;
@@ -292,41 +329,29 @@
       });
     }
 
-    function updateScale(val) {
-      const s = parseFloat(val);
-      scaleVal.textContent = `${s.toFixed(2)}×`;
-      if (model) model.scale.setScalar(s);
-    }
+    // Auto-load model from URL parameter
+    async function autoLoadModel() {
+      const urlModelKey = getQueryParam('model');
+      if (!urlModelKey || urlModelKey.length !== 10) {
+        const currentLang = document.documentElement.lang;
+        status.textContent = textContent[currentLang].statusError;
+        status.style.color = '#f00';
+        return;
+      }
 
-    scaleInput.addEventListener('input', (e) => updateScale(e.target.value));
-
-    loadBtn.addEventListener('click', async () => {
-      const v = prefix.value.trim();
-      if (v.length !== 10) { alert('يجب إدخال 10 أحرف.'); return; }
-      status.textContent = textContent[document.documentElement.lang].statusReady;
+      status.textContent = textContent[document.documentElement.lang].statusLoading;
       try {
-        await loadModelByPrefix(v);
+        await loadModelByPrefix(urlModelKey);
         status.textContent = textContent[document.documentElement.lang].statusLoaded;
+        status.style.color = '#0f0';
         startARBtn.disabled = false;
-        scaleInput.disabled = false;
-        
-        // Save key to URL
-        const newUrl = `${window.location.origin}${window.location.pathname}?model=${v}`;
-        window.history.replaceState(null, '', newUrl);
-        
-        // Show QR code on PC (non-mobile)
-        if (!isMobile) {
-          qrWrap.style.display = 'block';
-          QRCode.toCanvas(qrCanvas, newUrl, (error) => {
-            if (error) console.error('QR code error:', error);
-            console.log('QR code generated for pin URL!');
-          });
-        }
       } catch (e) {
         console.error(e);
-        alert('تعذر تحميل النموذج: ' + e.message);
+        const currentLang = document.documentElement.lang;
+        status.textContent = `${textContent[currentLang].statusError}: ${e.message}`;
+        status.style.color = '#f00';
       }
-    });
+    }
 
     async function startAR() {
       if (!navigator.xr) {
@@ -336,7 +361,8 @@
       try {
         xrSession = await navigator.xr.requestSession('immersive-ar', {
           requiredFeatures: ['hit-test', 'local-floor'],
-          optionalFeatures: ['anchors']
+          optionalFeatures: ['anchors', 'dom-overlay'],
+          domOverlay: { root: xrOverlay }
         });
         renderer.xr.setSession(xrSession);
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
@@ -344,9 +370,18 @@
         const hitSource = await xrSession.requestHitTestSource({ space: viewerSpace });
         hitTestSource = hitSource;
 
+        // Hide main UI and show XR overlay
+        document.getElementById('ui').style.display = 'none';
+        document.getElementById('lang-toggle').style.display = 'none';
+        xrSurfaceIndicator.style.display = 'block';
+        
         xrSession.addEventListener('end', () => {
           xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
           document.getElementById('ar-overlay').style.display = 'none';
+          xrControls.style.display = 'none';
+          xrSurfaceIndicator.style.display = 'none';
+          document.getElementById('ui').style.display = 'block';
+          document.getElementById('lang-toggle').style.display = 'block';
           status.textContent = textContent[document.documentElement.lang].statusReady;
         });
 
@@ -395,6 +430,14 @@
       model.quaternion.copy(quat);
       model.visible = true;
       placed = true;
+      
+      // Hide surface indicator and show controls
+      xrSurfaceIndicator.style.display = 'none';
+      xrControls.style.display = 'block';
+      
+      // Sync scale with XR controls
+      xrScaleInput.value = model.scale.x;
+      xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
 
       // Try anchors API if available
       const session = renderer.xr.getSession();
@@ -405,109 +448,87 @@
       enablePlacementActions();
     }
 
-    function enablePlacementActions() {
-      copyBtn.disabled = !placed;
-      saveBtn.disabled = !placed;
-      resetBtn.disabled = !placed;
-      
-      // Show AR overlay when model is placed
-      if (placed && xrSession) {
-        document.getElementById('ar-overlay').style.display = 'block';
-      }
-    }
-
     startARBtn.addEventListener('click', startAR);
 
-    resetBtn.addEventListener('click', () => {
-      placed = false; model && (model.visible = false); reticle.visible = false;
-      copyBtn.disabled = true; saveBtn.disabled = true; resetBtn.disabled = true;
-    });
-
-    copyBtn.addEventListener('click', () => {
-      if (!model || !placed) return;
-      const data = {
-        key: modelKey,
-        position: { x: model.position.x, y: model.position.y, z: model.position.z },
-        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
-        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
-      };
-      const text = JSON.stringify(data);
-      navigator.clipboard?.writeText(text).then(() => {
-        alert('تم نسخ بيانات التثبيت إلى الحافظة');
-        // Generate QR code for convenience
-        qrWrap.style.display = 'block';
-        QRCode.toCanvas(qrCanvas, text, (err) => { if (err) console.error(err); });
-      }).catch(() => alert(text));
-    });
-
-    saveBtn.addEventListener('click', () => {
-      if (!model || !placed || !modelKey) return;
-      const data = {
-        key: modelKey,
-        position: { x: model.position.x, y: model.position.y, z: model.position.z },
-        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
-        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
-      };
-      try {
-        localStorage.setItem(`placement:${modelKey}`, JSON.stringify(data));
-        alert('تم حفظ بيانات التثبيت محلياً');
-      } catch (e) {
-        console.error(e);
-        alert('تعذر الحفظ محلياً');
+    // XR Scale control
+    xrScaleInput.addEventListener('input', (e) => {
+      const s = parseFloat(e.target.value);
+      xrScaleVal.textContent = `${s.toFixed(2)}×`;
+      if (model && placed) {
+        model.scale.setScalar(s);
       }
     });
-
-    // Save pin data to AWS (encrypt and append to filename)
-    document.getElementById('save-pin-aws').addEventListener('click', async () => {
+    
+    // XR Rotate control
+    xrRotateInput.addEventListener('input', (e) => {
+      const deg = parseFloat(e.target.value);
+      xrRotateVal.textContent = `${deg}°`;
+      if (model && placed) {
+        model.rotation.y = (deg * Math.PI) / 180;
+      }
+    });
+    
+    // XR Reset button
+    xrResetBtn.addEventListener('click', () => {
+      if (model) {
+        model.visible = false;
+        placed = false;
+        xrControls.style.display = 'none';
+        xrSurfaceIndicator.style.display = 'block';
+        reticle.visible = false;
+      }
+    });
+    
+    // XR Save to AWS button
+    xrSaveAWSBtn.addEventListener('click', async () => {
       if (!model || !placed || !modelKey || !currentModelKey) {
-        alert('لا توجد بيانات تثبيت لحفظها');
+        const currentLang = document.documentElement.lang;
+        const msg = currentLang === 'ar' ? 'لا توجد بيانات تثبيت لحفظها' : 'No pin data to save';
+        alert(msg);
         return;
       }
 
       const pinData = {
         position: { x: model.position.x, y: model.position.y, z: model.position.z },
         quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
-        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
+        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z },
+        rotation: { y: model.rotation.y }
       };
 
-      // Encode pin data to base64
       const pinDataString = JSON.stringify(pinData);
       const encodedPinData = btoa(pinDataString);
-
-      // Create new key: first 10 chars + encoded pin data
       const fileExt = currentModelKey.split('.').pop();
       const newKey = `${modelKey}_${encodedPinData}.${fileExt}`;
 
       try {
-        showLoadingScreen(true);
+        const currentLang = document.documentElement.lang;
+        document.getElementById('xr-status').textContent = currentLang === 'ar' ? 'جار الحفظ...' : 'Saving...';
         
-        // Copy the object with new key
         await s3.copyObject({
           Bucket: bucketName,
           CopySource: `${bucketName}/${currentModelKey}`,
           Key: newKey
         }).promise();
 
-        // Delete old object
         await s3.deleteObject({
           Bucket: bucketName,
           Key: currentModelKey
         }).promise();
 
-        showLoadingScreen(false);
-        document.getElementById('ar-overlay').style.display = 'none';
-        alert('تم حفظ بيانات التثبيت في AWS بنجاح!');
-        
-        // Update current model key
         currentModelKey = newKey;
+        const msg = currentLang === 'ar' ? 'تم الحفظ بنجاح!' : 'Saved successfully!';
+        document.getElementById('xr-status').textContent = msg;
+        document.getElementById('xr-status').style.color = '#0f0';
         
-        // Update URL
-        const newUrl = `showpin.html?model=${modelKey}`;
-        console.log('Pin data saved. View at:', newUrl);
+        setTimeout(() => {
+          if (xrSession) xrSession.end();
+        }, 2000);
       } catch (e) {
         console.error('Error saving pin data to AWS:', e);
-        showLoadingScreen(false);
-        alert('فشل حفظ بيانات التثبيت: ' + e.message);
+        const currentLang = document.documentElement.lang;
+        const msg = currentLang === 'ar' ? 'فشل الحفظ: ' + e.message : 'Save failed: ' + e.message;
+        document.getElementById('xr-status').textContent = msg;
+        document.getElementById('xr-status').style.color = '#f00';
       }
     });
 
@@ -517,15 +538,9 @@
       camera.updateProjectionMatrix();
     });
 
-    // Support auto-load via URL ?model=xxxx
-    const urlModelKey = getQueryParam('model');
-    if (urlModelKey && urlModelKey.length === 10) {
-      prefix.value = urlModelKey;
-      loadBtn.click();
-    }
-
-    // Initialize Arabic as default
+    // Initialize Arabic as default and auto-load model
     setLang('ar');
+    autoLoadModel();
   </script>
 </body>
 </html>
