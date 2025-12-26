@@ -23,9 +23,12 @@
     #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
     #qrcode-wrap { margin-top: 8px; display: none; }
     canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
+    #loading-screen.hidden { opacity: 0; pointer-events: none; }
   </style>
 </head>
 <body lang="ar">
+  <div id="loading-screen" class="hidden">جار التحميل...</div>
   <button id="lang-toggle">English</button>
 
   <div id="ui">
@@ -81,6 +84,7 @@
         statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
         statusAR: 'تحريك الهاتف بحثاً عن سطح. اضغط للتثبيت.',
+        loading: 'جار التحميل...',
         toggleLang: 'English'
       },
       en: {
@@ -91,6 +95,7 @@
         statusReady: 'Ready. Requires Chrome on Android with WebXR.',
         statusLoaded: 'Model loaded. Tap Start AR.',
         statusAR: 'Move phone to find a surface. Tap to pin.',
+        loading: 'Loading content...',
         toggleLang: 'Arabic'
       }
     };
@@ -108,6 +113,7 @@
       copyBtn.textContent = t.copy;
       saveBtn.textContent = t.save;
       status.textContent = t.statusReady;
+      document.getElementById('loading-screen').textContent = t.loading;
       langToggle.textContent = t.toggleLang;
     }
 
@@ -125,12 +131,35 @@
     const status = document.getElementById('status');
     const qrWrap = document.getElementById('qrcode-wrap');
     const qrCanvas = document.getElementById('qrcode');
+    const loadingScreen = document.getElementById('loading-screen');
+
+    let loadedBytes = 0;
 
     // Toggle language
     langToggle.addEventListener('click', () => {
       const newLang = (document.documentElement.lang === 'ar') ? 'en' : 'ar';
       setLang(newLang);
     });
+
+    // Show loading screen with progress
+    function showLoadingScreen(show, totalBytes = 0) {
+      loadingScreen.classList.toggle('hidden', !show);
+      
+      if (show && totalBytes > 0) {
+        const updateProgress = () => {
+          const currentLang = document.documentElement.lang;
+          const baseText = textContent[currentLang].loading;
+          loadingScreen.innerText = `${baseText} ${(loadedBytes / (1024 * 1024)).toFixed(2)} MB / ${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
+          
+          if (!loadingScreen.classList.contains('hidden')) {
+            requestAnimationFrame(updateProgress);
+          }
+        };
+        updateProgress();
+      } else if (show) {
+        loadingScreen.innerText = textContent[document.documentElement.lang].loading;
+      }
+    }
 
     // AWS configuration is loaded from aws-config.js
     const s3 = new AWS.S3();
@@ -139,15 +168,6 @@
     function getQueryParam(name) {
       const urlParams = new URLSearchParams(window.location.search);
       return urlParams.get(name);
-    }
-
-    function presignUrl(key) {
-      try {
-        return s3.getSignedUrl('getObject', { Bucket: bucketName, Key: key, Expires: 3600 });
-      } catch (e) {
-        console.error('Presign failed:', e);
-        return null;
-      }
     }
 
     // Three.js setup
@@ -184,28 +204,72 @@
 
     function loadModelByPrefix(prefixVal) {
       return new Promise((resolve, reject) => {
+        loadedBytes = 0;
+        
         s3.listObjectsV2({ Bucket: bucketName, Prefix: prefixVal }, (err, data) => {
-          if (err) { reject(err); return; }
+          if (err) {
+            console.error('Error fetching bucket contents:', err);
+            reject(err);
+            return;
+          }
+          
           if (!data || !data.Contents || data.Contents.length === 0) {
             reject(new Error('No object found for prefix'));
             return;
           }
+          
           const key = data.Contents[0].Key;
           const ext = key.split('.').pop().toLowerCase();
+          
           if (ext !== 'glb' && ext !== 'gltf') {
             reject(new Error('Unsupported file type. Use glb/gltf'));
             return;
           }
-          const url = presignUrl(key);
-          if (!url) { reject(new Error('Failed to presign URL')); return; }
-          loader.load(url, (gltf) => {
-            model = gltf.scene;
-            model.visible = false;
-            model.scale.setScalar(parseFloat(scaleInput.value));
-            scene.add(model);
-            modelKey = prefixVal;
-            resolve({ key, url });
-          }, undefined, (e) => reject(e));
+          
+          const params = { Bucket: bucketName, Key: key };
+          
+          // Get file metadata first for progress tracking
+          s3.headObject(params, (err, metadata) => {
+            if (err) {
+              console.error('Error getting file metadata:', err);
+              reject(err);
+              return;
+            }
+            
+            const totalBytes = metadata.ContentLength;
+            showLoadingScreen(true, totalBytes);
+            
+            // Download with progress tracking
+            s3.getObject(params)
+              .on('httpDownloadProgress', (progress) => {
+                loadedBytes = progress.loaded;
+              })
+              .send((err, data) => {
+                if (err) {
+                  console.error('Error loading object:', err);
+                  showLoadingScreen(false);
+                  reject(err);
+                  return;
+                }
+                
+                // Create URL from downloaded data
+                const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
+                
+                // Load the model using GLTFLoader
+                loader.load(fileUrl, (gltf) => {
+                  model = gltf.scene;
+                  model.visible = false;
+                  model.scale.setScalar(parseFloat(scaleInput.value));
+                  scene.add(model);
+                  modelKey = prefixVal;
+                  showLoadingScreen(false);
+                  resolve({ key, url: fileUrl });
+                }, undefined, (e) => {
+                  showLoadingScreen(false);
+                  reject(e);
+                });
+              });
+          });
         });
       });
     }
