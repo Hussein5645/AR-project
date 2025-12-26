@@ -466,8 +466,11 @@
                 
                 // Create URL from downloaded data
                 const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
-                
-                // Load the model using GLTFLoader
+                                // Save model URL to sessionStorage for reuse
+                sessionStorage.setItem('currentModelUrl', fileUrl);
+                sessionStorage.setItem('currentModelKey', key);
+                sessionStorage.setItem('currentModelPrefix', prefixVal);
+                                // Load the model using GLTFLoader
                 loader.load(fileUrl, (gltf) => {
                   model = gltf.scene;
                   model.visible = false;
@@ -497,6 +500,84 @@
         return;
       }
 
+      // Check if model is already loaded in sessionStorage
+      const cachedModelUrl = sessionStorage.getItem('currentModelUrl');
+      const cachedModelPrefix = sessionStorage.getItem('currentModelPrefix');
+      const cachedModelKey = sessionStorage.getItem('currentModelKey');
+      
+      if (cachedModelUrl && cachedModelPrefix === urlModelKey) {
+        // Use cached model instead of reloading
+        status.textContent = textContent[document.documentElement.lang].statusLoading;
+        showLoadingScreen(true);
+        
+        // Parse key to check for pin data
+        if (cachedModelKey.includes('_PINNED_')) {
+          hasPinData = true;
+          const parts = cachedModelKey.split('_PINNED_');
+          if (parts.length > 1) {
+            const afterPinned = parts[1];
+            const matches = afterPinned.match(/^([^_]+)_(.+)$/);
+            if (matches) {
+              const encodedData = matches[1];
+              originalFileName = matches[2];
+              try {
+                existingPinData = JSON.parse(atob(encodedData));
+              } catch (e) {
+                console.error('Failed to decode existing pin data:', e);
+              }
+            }
+          }
+        } else {
+          hasPinData = false;
+          originalFileName = cachedModelKey.substring(10);
+          if (originalFileName.startsWith('_')) {
+            originalFileName = originalFileName.substring(1);
+          }
+        }
+        
+        // Load model from cached URL
+        loader.load(cachedModelUrl, (gltf) => {
+          model = gltf.scene;
+          model.visible = false;
+          model.scale.setScalar(1.0);
+          scene.add(model);
+          modelKey = urlModelKey;
+          currentModelKey = cachedModelKey;
+          showLoadingScreen(false);
+          
+          const currentLang = document.documentElement.lang;
+          if (hasPinData) {
+            status.textContent = textContent[currentLang].statusHasPinData;
+            status.style.color = '#ffc107';
+            
+            showPinDataModal().then(decision => {
+              if (decision === 'view') {
+                window.location.href = `showpin.html?model=${urlModelKey}`;
+                return;
+              }
+              startARBtn.disabled = false;
+            });
+          } else {
+            status.textContent = textContent[currentLang].statusNoPinData;
+            status.style.color = '#0f0';
+            startARBtn.disabled = false;
+          }
+        }, undefined, (e) => {
+          showLoadingScreen(false);
+          console.error('Error loading cached model:', e);
+          // Fallback to AWS loading
+          loadFromAWS();
+        });
+        
+        return;
+      }
+      
+      // If not in cache, load from AWS
+      await loadFromAWS();
+    }
+    
+    async function loadFromAWS() {
+      const urlModelKey = getQueryParam('model');
       status.textContent = textContent[document.documentElement.lang].statusLoading;
       try {
         await loadModelByPrefix(urlModelKey);
@@ -510,7 +591,7 @@
           const decision = await showPinDataModal();
           if (decision === 'view') {
             // Redirect to showpin.html
-            window.location.href = `showpin.html?model=${urlModelKey}`;
+            window.location.href = `showpin.html?model=${getQueryParam('model')}`;
             return;
           }
           // If 'overwrite', continue to allow AR session
@@ -623,8 +704,7 @@ function placeModel() {
     }
 
     startARBtn.addEventListener('click', startAR);
-    xrPinBtn.addEventListener('click', placeModel
-    startARBtn.addEventListener('click', startAR);
+    xrPinBtn.addEventListener('click', placeModel);
 
     // XR Scale control
     xrScaleInput.addEventListener('input', (e) => {

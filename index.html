@@ -476,6 +476,12 @@ function loadModel() {
 
                         // Process loaded file based on file type
                         const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
+                        
+                        // Save model data to sessionStorage for reuse in pin.html
+                        sessionStorage.setItem('currentModelUrl', fileUrl);
+                        sessionStorage.setItem('currentModelKey', key);
+                        sessionStorage.setItem('currentModelPrefix', prefix);
+                        
                         if (fileExtension === 'gltf' || fileExtension === 'glb') {
                             modelViewer.src = fileUrl;
                             modelViewer.style.display = 'block';
