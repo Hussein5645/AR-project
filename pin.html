@@ -25,11 +25,20 @@
     canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
     #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
     #loading-screen.hidden { opacity: 0; pointer-events: none; }
+    #ar-overlay { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 15px 20px; border-radius: 8px; display: none; z-index: 25; min-width: 280px; text-align: center; }
+    #ar-overlay button { width: 100%; margin: 5px 0; padding: 12px; border: none; border-radius: 6px; background: #28a745; color: #fff; font-weight: bold; cursor: pointer; }
+    #ar-overlay button:hover { background: #218838; }
+    #ar-overlay p { margin: 5px 0; font-size: 14px; color: #bbb; }
   </style>
 </head>
 <body lang="ar">
   <div id="loading-screen" class="hidden">جار التحميل...</div>
   <button id="lang-toggle">English</button>
+
+  <div id="ar-overlay">
+    <p id="ar-overlay-text">النموذج مثبت! احفظ الموقع؟</p>
+    <button id="save-pin-aws">حفظ بيانات التثبيت في AWS</button>
+  </div>
 
   <div id="ui">
     <h2 id="title">تثبيت النموذج في الواقع المعزز</h2>
@@ -85,6 +94,8 @@
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
         statusAR: 'تحريك الهاتف بحثاً عن سطح. اضغط للتثبيت.',
         loading: 'جار التحميل...',
+        arOverlay: 'النموذج مثبت! احفظ الموقع؟',
+        savePinAWS: 'حفظ بيانات التثبيت في AWS',
         toggleLang: 'English'
       },
       en: {
@@ -96,6 +107,8 @@
         statusLoaded: 'Model loaded. Tap Start AR.',
         statusAR: 'Move phone to find a surface. Tap to pin.',
         loading: 'Loading content...',
+        arOverlay: 'Model pinned! Save location?',
+        savePinAWS: 'Save Pin Data to AWS',
         toggleLang: 'Arabic'
       }
     };
@@ -114,6 +127,8 @@
       saveBtn.textContent = t.save;
       status.textContent = t.statusReady;
       document.getElementById('loading-screen').textContent = t.loading;
+      document.getElementById('ar-overlay-text').textContent = t.arOverlay;
+      document.getElementById('save-pin-aws').textContent = t.savePinAWS;
       langToggle.textContent = t.toggleLang;
     }
 
@@ -194,6 +209,7 @@
 
     let model = null;
     let modelKey = null;
+    let currentModelKey = null;
     let placed = false;
     let xrSession = null;
     let xrRefSpace = null;
@@ -263,6 +279,7 @@
                   model.scale.setScalar(parseFloat(scaleInput.value));
                   scene.add(model);
                   modelKey = prefixVal;
+                  currentModelKey = key;
                   showLoadingScreen(false);
                   resolve({ key, url: fileUrl });
                 }, undefined, (e) => {
@@ -329,6 +346,7 @@
 
         xrSession.addEventListener('end', () => {
           xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
+          document.getElementById('ar-overlay').style.display = 'none';
           status.textContent = textContent[document.documentElement.lang].statusReady;
         });
 
@@ -391,6 +409,11 @@
       copyBtn.disabled = !placed;
       saveBtn.disabled = !placed;
       resetBtn.disabled = !placed;
+      
+      // Show AR overlay when model is placed
+      if (placed && xrSession) {
+        document.getElementById('ar-overlay').style.display = 'block';
+      }
     }
 
     startARBtn.addEventListener('click', startAR);
@@ -431,6 +454,60 @@
       } catch (e) {
         console.error(e);
         alert('تعذر الحفظ محلياً');
+      }
+    });
+
+    // Save pin data to AWS (encrypt and append to filename)
+    document.getElementById('save-pin-aws').addEventListener('click', async () => {
+      if (!model || !placed || !modelKey || !currentModelKey) {
+        alert('لا توجد بيانات تثبيت لحفظها');
+        return;
+      }
+
+      const pinData = {
+        position: { x: model.position.x, y: model.position.y, z: model.position.z },
+        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
+        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
+      };
+
+      // Encode pin data to base64
+      const pinDataString = JSON.stringify(pinData);
+      const encodedPinData = btoa(pinDataString);
+
+      // Create new key: first 10 chars + encoded pin data
+      const fileExt = currentModelKey.split('.').pop();
+      const newKey = `${modelKey}_${encodedPinData}.${fileExt}`;
+
+      try {
+        showLoadingScreen(true);
+        
+        // Copy the object with new key
+        await s3.copyObject({
+          Bucket: bucketName,
+          CopySource: `${bucketName}/${currentModelKey}`,
+          Key: newKey
+        }).promise();
+
+        // Delete old object
+        await s3.deleteObject({
+          Bucket: bucketName,
+          Key: currentModelKey
+        }).promise();
+
+        showLoadingScreen(false);
+        document.getElementById('ar-overlay').style.display = 'none';
+        alert('تم حفظ بيانات التثبيت في AWS بنجاح!');
+        
+        // Update current model key
+        currentModelKey = newKey;
+        
+        // Update URL
+        const newUrl = `showpin.html?model=${modelKey}`;
+        console.log('Pin data saved. View at:', newUrl);
+      } catch (e) {
+        console.error('Error saving pin data to AWS:', e);
+        showLoadingScreen(false);
+        alert('فشل حفظ بيانات التثبيت: ' + e.message);
       }
     });
 
