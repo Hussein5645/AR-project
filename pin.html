@@ -117,24 +117,14 @@
     <h2 id="title">تثبيت النموذج في الواقع المعزز</h2>
 
     <div class="row">
-      <button id="start-ar" disabled>بدء AR (WebXR)</button>
+      <button id="btn-show-pin" class="secondary" disabled>👁️ عرض بيانات التثبيت</button>
+      <button id="btn-edit-pin" class="btn-primary" disabled>✏️ تعديل بيانات التثبيت</button>
     </div>
 
     <div id="status">جار تحميل النموذج...</div>
   </div>
 
-  <!-- Modal for Pin Data Decision -->
-  <div id="pin-data-modal" class="modal-overlay">
-    <div class="modal-content">
-      <div class="icon-warning">⚠️</div>
-      <h3 id="modal-title">بيانات تثبيت موجودة</h3>
-      <p id="modal-message">هذا النموذج يحتوي على بيانات تثبيت محفوظة. ماذا تريد أن تفعل؟</p>
-      <div class="modal-buttons">
-        <button id="modal-view-pin" class="btn-info">👁️ عرض بيانات التثبيت الحالية</button>
-        <button id="modal-overwrite" class="btn-primary">✏️ إنشاء بيانات تثبيت جديدة</button>
-      </div>
-    </div>
-  </div>
+  <!-- (Decision modal removed; using direct buttons in UI) -->
 
   <!-- Modal for Errors/Alerts -->
   <div id="alert-modal" class="modal-overlay">
@@ -165,7 +155,8 @@
     const textContent = {
       ar: {
         title: 'تثبيت النموذج في الواقع المعزز',
-        startAR: 'بدء AR (WebXR)',
+        showPinBtn: '👁️ عرض بيانات التثبيت',
+        editPinBtn: '✏️ تعديل بيانات التثبيت',
         statusAR: 'يتم بدء جلسة الواقع المعزز... ',
         statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
@@ -186,10 +177,6 @@
         xrReset: 'إعادة التثبيت',
         surfaceText: 'ابحث عن سطح',
         xrPinBtn: '📍 تثبيت الموقع',
-        modalPinTitle: 'بيانات تثبيت موجودة',
-        modalPinMessage: 'هذا النموذج يحتوي على بيانات تثبيت محفوظة. ماذا تريد أن تفعل؟',
-        modalViewPin: '👁️ عرض بيانات التثبيت الحالية',
-        modalOverwrite: '✏️ إنشاء بيانات تثبيت جديدة',
         alertTitle: 'تنبيه',
         alertOk: 'حسناً',
         webxrNotSupported: 'WebXR غير مدعوم على هذا الجهاز/المتصفح.',
@@ -198,7 +185,8 @@
       },
       en: {
         title: 'Pin the Model in AR',
-        startAR: 'Start AR (WebXR)',
+        showPinBtn: '👁️ View Pin Data',
+        editPinBtn: '✏️ Edit Pin Data',
         statusAR: 'Starting AR session... ',
         statusReady: 'Ready. Requires Chrome on Android with WebXR.',
         statusLoaded: 'Model loaded. Tap Start AR.',
@@ -219,10 +207,6 @@
         xrReset: 'Reposition',
         surfaceText: 'Find a surface',
         xrPinBtn: '📍 Pin Location',
-        modalPinTitle: 'Pin Data Found',
-        modalPinMessage: 'This model has saved pin data. What would you like to do?',
-        modalViewPin: '👁️ View Current Pin Data',
-        modalOverwrite: '✏️ Create New Pin Data',
         alertTitle: 'Notice',
         alertOk: 'OK',
         webxrNotSupported: 'WebXR is not supported on this device/browser.',
@@ -236,7 +220,8 @@
       document.body.setAttribute('lang', lang);
       const t = textContent[lang];
       title.textContent = t.title;
-      startARBtn.textContent = t.startAR;
+      btnShowPin.textContent = t.showPinBtn;
+      btnEditPin.textContent = t.editPinBtn;
       document.getElementById('loading-screen').textContent = t.loading;
       document.getElementById('ar-overlay-text').textContent = t.arOverlay;
       document.getElementById('save-pin-aws').textContent = t.savePinAWS;
@@ -249,17 +234,14 @@
       document.getElementById('xr-reset').textContent = t.xrReset;
       document.getElementById('xr-pin-btn').textContent = t.xrPinBtn;
       document.getElementById('surface-text').textContent = t.surfaceText;
-      document.getElementById('modal-title').textContent = t.modalPinTitle;
-      document.getElementById('modal-message').textContent = t.modalPinMessage;
-      document.getElementById('modal-view-pin').innerHTML = t.modalViewPin;
-      document.getElementById('modal-overwrite').innerHTML = t.modalOverwrite;
       document.getElementById('alert-title').textContent = t.alertTitle;
       document.getElementById('alert-ok').textContent = t.alertOk;
     }
 
     const langToggle = document.getElementById('lang-toggle');
     const title = document.getElementById('title');
-    const startARBtn = document.getElementById('start-ar');
+    const btnShowPin = document.getElementById('btn-show-pin');
+    const btnEditPin = document.getElementById('btn-edit-pin');
     const status = document.getElementById('status');
     const loadingScreen = document.getElementById('loading-screen');
     
@@ -275,36 +257,11 @@
     const xrPinBtn = document.getElementById('xr-pin-btn');
     const xrResetBtn = document.getElementById('xr-reset');
     
-    const pinDataModal = document.getElementById('pin-data-modal');
-    const modalViewPinBtn = document.getElementById('modal-view-pin');
-    const modalOverwriteBtn = document.getElementById('modal-overwrite');
     const alertModal = document.getElementById('alert-modal');
     const alertMessage = document.getElementById('alert-message');
     const alertOkBtn = document.getElementById('alert-ok');
 
-    // Modal helper functions
-    function showPinDataModal() {
-      return new Promise((resolve) => {
-        pinDataModal.classList.add('show');
-        
-        const viewHandler = () => {
-          pinDataModal.classList.remove('show');
-          modalViewPinBtn.removeEventListener('click', viewHandler);
-          modalOverwriteBtn.removeEventListener('click', overwriteHandler);
-          resolve('view');
-        };
-        
-        const overwriteHandler = () => {
-          pinDataModal.classList.remove('show');
-          modalViewPinBtn.removeEventListener('click', viewHandler);
-          modalOverwriteBtn.removeEventListener('click', overwriteHandler);
-          resolve('overwrite');
-        };
-        
-        modalViewPinBtn.addEventListener('click', viewHandler);
-        modalOverwriteBtn.addEventListener('click', overwriteHandler);
-      });
-    }
+    // Decision modal removed
     
     function showAlert(message) {
       return new Promise((resolve) => {
@@ -353,6 +310,35 @@
     // AWS configuration is loaded from aws-config.js
     const s3 = new AWS.S3();
     const bucketName = AWS_CONFIG.bucketName;
+
+    function decodePinData(encoded) {
+      if (!encoded) return null;
+      try {
+        let clean = encoded.trim().replace(/\s+/g, '');
+        clean = clean.replace(/\./g, '+');
+        let b64 = clean.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        if (pad) b64 += '='.repeat(4 - pad);
+        const jsonStr = atob(b64);
+        return JSON.parse(jsonStr);
+      } catch (e1) {
+        try {
+          const jsonStr = decodeURIComponent(encoded);
+          return JSON.parse(jsonStr);
+        } catch (e2) {
+          console.error('Pin data decode failed:', { e1, e2 });
+          return null;
+        }
+      }
+    }
+
+    function extractPinDataFromKey(key) {
+      const m = key.match(/_PINNED_([A-Za-z0-9\-_=]+)(?:_|\.|$)/);
+      if (m && m[1]) {
+        return decodePinData(m[1]);
+      }
+      return null;
+    }
 
     function getQueryParam(name) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -698,7 +684,7 @@
     // Auto-load model from URL parameter
     async function autoLoadModel() {
       const urlModelKey = getQueryParam('model');
-      if (!urlModelKey || urlModelKey.length !== 10) {
+      if (!urlModelKey || urlModelKey.trim() === '') {
         const currentLang = document.documentElement.lang;
         status.textContent = textContent[currentLang].statusError;
         status.style.color = '#f00';
@@ -710,27 +696,19 @@
       status.textContent = textContent[document.documentElement.lang].statusLoading;
       showLoadingScreen(true);
       try {
-        await loadModelByPrefix(urlModelKey);
+        await loadModelByPrefix(urlModelKey.trim());
         const currentLang = document.documentElement.lang;
-        
-        if (hasPinData) {
-          status.textContent = textContent[currentLang].statusHasPinData;
-          status.style.color = '#ffc107';
-          
-          // Show modal instead of confirm
-          const decision = await showPinDataModal();
-          if (decision === 'view') {
-            // Redirect to showpin.html
-            window.location.href = `showpin.html?model=${urlModelKey}`;
-            return;
-          }
-          // If 'overwrite', continue to allow AR session
-        } else {
-          status.textContent = textContent[currentLang].statusNoPinData;
-          status.style.color = '#0f0';
+        // Derive existing pin data from currentModelKey if present
+        if (currentModelKey && currentModelKey.includes('_PINNED_')) {
+          existingPinData = extractPinDataFromKey(currentModelKey);
+          hasPinData = !!existingPinData;
         }
-        
-        startARBtn.disabled = false;
+
+        // Enable buttons accordingly
+        btnEditPin.disabled = false;
+        btnShowPin.disabled = !hasPinData;
+        status.textContent = hasPinData ? textContent[currentLang].statusHasPinData : textContent[currentLang].statusNoPinData;
+        status.style.color = hasPinData ? '#ffc107' : '#0f0';
       } catch (e) {
         console.error('Error loading model:', e);
         const currentLang = document.documentElement.lang;
@@ -740,7 +718,23 @@
       }
     }
 
-    async function startAR() {
+    function applyPinDataToModel(pd) {
+      if (!pd || !model) return;
+      if (pd.position) {
+        model.position.set(pd.position.x, pd.position.y, pd.position.z);
+      }
+      if (pd.quaternion) {
+        model.quaternion.set(pd.quaternion.x, pd.quaternion.y, pd.quaternion.z, pd.quaternion.w);
+      }
+      if (pd.scale) {
+        model.scale.set(pd.scale.x, pd.scale.y, pd.scale.z);
+      }
+      if (pd.rotation && typeof pd.rotation.y === 'number') {
+        model.rotation.y = pd.rotation.y;
+      }
+    }
+
+    async function startAR(mode = 'edit') {
       if (!navigator.xr) {
         const currentLang = document.documentElement.lang;
         await showAlert(textContent[currentLang].webxrNotSupported);
@@ -759,14 +753,19 @@
         });
         renderer.xr.setSession(xrSession);
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
-        viewerSpace = await xrSession.requestReferenceSpace('viewer');
-        const hitSource = await xrSession.requestHitTestSource({ space: viewerSpace });
-        hitTestSource = hitSource;
+        if (mode === 'edit') {
+          viewerSpace = await xrSession.requestReferenceSpace('viewer');
+          hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+        } else {
+          viewerSpace = null;
+          hitTestSource = null;
+        }
 
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
         document.getElementById('lang-toggle').style.display = 'none';
-        xrSurfaceIndicator.style.display = 'block';
+        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'none';
+        xrControls.style.display = 'none';
         
         xrSession.addEventListener('end', () => {
           xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
@@ -787,6 +786,19 @@
 
         status.textContent = textContent[document.documentElement.lang].statusAR;
         renderer.setAnimationLoop(onXRFrame);
+
+        // Place model for show or edit when existing pin data is present
+        if (existingPinData) {
+          applyPinDataToModel(existingPinData);
+          model.visible = true;
+          placed = true;
+          if (mode === 'edit') {
+            xrSurfaceIndicator.style.display = 'none';
+            xrControls.style.display = 'block';
+            xrScaleInput.value = model.scale.x;
+            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          }
+        }
       } catch (e) {
         console.error(e);
         const currentLang = document.documentElement.lang;
@@ -796,47 +808,46 @@
 
     function onXRFrame(time, frame) {
       const session = renderer.xr.getSession();
-      if (!session || !hitTestSource) return;
+      if (!session) return;
       const pose = frame.getViewerPose(xrRefSpace);
-      if (!pose) return;
+      if (hitTestSource && pose) {
+        const results = frame.getHitTestResults(hitTestSource);
+        if (results.length > 0) {
+          const hit = results[0];
+          const hitPose = hit.getPose(xrRefSpace);
+          currentHitPose = hitPose;
+          reticle.visible = true;
+          reticleMaterial.color.setHex(0x00ffaa);
+          reticle.matrix.fromArray(hitPose.transform.matrix);
 
-      const results = frame.getHitTestResults(hitTestSource);
-      if (results.length > 0) {
-        const hit = results[0];
-        const hitPose = hit.getPose(xrRefSpace);
-        currentHitPose = hitPose;
-        reticle.visible = true;
-        reticleMaterial.color.setHex(0x00ffaa);
-        reticle.matrix.fromArray(hitPose.transform.matrix);
+          surfacePulse.visible = true;
+          surfacePulse.matrix.fromArray(hitPose.transform.matrix);
+          const t = time * 0.004;
+          surfacePulse.material.opacity = 0.15 + 0.15 * Math.sin(t);
 
-        surfacePulse.visible = true;
-        surfacePulse.matrix.fromArray(hitPose.transform.matrix);
-        const t = time * 0.004;
-        surfacePulse.material.opacity = 0.15 + 0.15 * Math.sin(t);
+          const camPos = pose.views[0].transform.position;
+          const m = new THREE.Matrix4().fromArray(hitPose.transform.matrix);
+          const p = new THREE.Vector3();
+          const q = new THREE.Quaternion();
+          const s = new THREE.Vector3();
+          m.decompose(p, q, s);
+          const posAttr = hitLineGeom.getAttribute('position');
+          posAttr.setXYZ(0, camPos.x, camPos.y, camPos.z);
+          posAttr.setXYZ(1, p.x, p.y, p.z);
+          posAttr.needsUpdate = true;
+          hitLine.visible = true;
 
-        const camPos = pose.views[0].transform.position;
-        const m = new THREE.Matrix4().fromArray(hitPose.transform.matrix);
-        const p = new THREE.Vector3();
-        const q = new THREE.Quaternion();
-        const s = new THREE.Vector3();
-        m.decompose(p, q, s);
-        const posAttr = hitLineGeom.getAttribute('position');
-        posAttr.setXYZ(0, camPos.x, camPos.y, camPos.z);
-        posAttr.setXYZ(1, p.x, p.y, p.z);
-        posAttr.needsUpdate = true;
-        hitLine.visible = true;
-
-        const currentLang = document.documentElement.lang;
-        surfaceTextEl.textContent = currentLang === 'ar' ? 'تم العثور على سطح - اضغط لتثبيت' : 'Surface found - tap to pin';
-      } else {
-        reticle.visible = false;
-        surfacePulse.visible = false;
-        hitLine.visible = false;
-        reticleMaterial.color.setHex(0xff4444);
-        const currentLang = document.documentElement.lang;
-        surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح' : 'Find a surface';
+          const currentLang = document.documentElement.lang;
+          surfaceTextEl.textContent = currentLang === 'ar' ? 'تم العثور على سطح - اضغط لتثبيت' : 'Surface found - tap to pin';
+        } else {
+          reticle.visible = false;
+          surfacePulse.visible = false;
+          hitLine.visible = false;
+          reticleMaterial.color.setHex(0xff4444);
+          const currentLang = document.documentElement.lang;
+          surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح' : 'Find a surface';
+        }
       }
-
       renderer.render(scene, camera);
     }
 function placeModel() {
@@ -868,7 +879,8 @@ function placeModel() {
       // We still keep the transform in our own scene for persistence in this session.
     }
 
-    startARBtn.addEventListener('click', startAR);
+    btnShowPin.addEventListener('click', () => startAR('show'));
+    btnEditPin.addEventListener('click', () => startAR('edit'));
     xrPinBtn.addEventListener('click', placeModel);
 
     // XR Scale control
