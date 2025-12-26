@@ -20,7 +20,10 @@
     #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { font-size: 12px; color: #bbb; margin-top: 4px; }
     #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
-    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #preview-canvas.hidden { display: none; }
+    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; }
+    canvas.xr.active { display: block; }
     #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
     #loading-screen.hidden { opacity: 0; pointer-events: none; }
     #ar-overlay { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 15px 20px; border-radius: 8px; display: none; z-index: 25; min-width: 280px; text-align: center; }
@@ -72,6 +75,7 @@
   </style>
 </head>
 <body lang="ar">
+  <canvas id="preview-canvas"></canvas>
   <div id="loading-screen" class="hidden">جار التحميل...</div>
   <button id="lang-toggle">English</button>
 
@@ -155,6 +159,7 @@
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // Language content
     const textContent = {
@@ -351,7 +356,49 @@
       return urlParams.get(name);
     }
 
-    // Three.js setup
+    // Preview canvas setup
+    const previewCanvas = document.getElementById('preview-canvas');
+    const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
+    previewRenderer.setSize(window.innerWidth, window.innerHeight);
+    previewRenderer.setPixelRatio(window.devicePixelRatio);
+    previewRenderer.shadowMap.enabled = true;
+    previewRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    const previewScene = new THREE.Scene();
+    previewScene.background = new THREE.Color(0x121212);
+    
+    const previewCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    previewCamera.position.set(0, 1.5, 3);
+    
+    const previewControls = new OrbitControls(previewCamera, previewCanvas);
+    previewControls.enableDamping = true;
+    previewControls.dampingFactor = 0.05;
+    previewControls.minDistance = 1;
+    previewControls.maxDistance = 10;
+    
+    const previewLight1 = new THREE.DirectionalLight(0xffffff, 1);
+    previewLight1.position.set(5, 10, 5);
+    previewLight1.castShadow = true;
+    previewScene.add(previewLight1);
+    
+    const previewLight2 = new THREE.AmbientLight(0xffffff, 0.5);
+    previewScene.add(previewLight2);
+    
+    const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+    previewScene.add(gridHelper);
+    
+    let previewModel = null;
+    let isPreviewMode = true;
+    
+    function animatePreview() {
+      if (isPreviewMode) {
+        requestAnimationFrame(animatePreview);
+        previewControls.update();
+        previewRenderer.render(previewScene, previewCamera);
+      }
+    }
+
+    // Three.js setup for XR
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.xr.enabled = true;
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -476,6 +523,20 @@
                   model.visible = false;
                   model.scale.setScalar(1.0);
                   scene.add(model);
+                  
+                  // Add to preview scene
+                  previewModel = gltf.scene.clone();
+                  previewModel.scale.setScalar(1.0);
+                  previewScene.add(previewModel);
+                  
+                  // Center model in preview
+                  const box = new THREE.Box3().setFromObject(previewModel);
+                  const center = box.getCenter(new THREE.Vector3());
+                  previewModel.position.sub(center);
+                  
+                  // Start preview animation
+                  animatePreview();
+                  
                   modelKey = prefixVal;
                   currentModelKey = key;
                   showLoadingScreen(false);
@@ -541,6 +602,20 @@
           model.visible = false;
           model.scale.setScalar(1.0);
           scene.add(model);
+          
+          // Add to preview scene
+          previewModel = gltf.scene.clone();
+          previewModel.scale.setScalar(1.0);
+          previewScene.add(previewModel);
+          
+          // Center model in preview
+          const box = new THREE.Box3().setFromObject(previewModel);
+          const center = box.getCenter(new THREE.Vector3());
+          previewModel.position.sub(center);
+          
+          // Start preview animation
+          animatePreview();
+          
           modelKey = urlModelKey;
           currentModelKey = cachedModelKey;
           showLoadingScreen(false);
@@ -616,6 +691,11 @@
         return;
       }
       try {
+        // Stop preview mode
+        isPreviewMode = false;
+        previewCanvas.classList.add('hidden');
+        renderer.domElement.classList.add('active');
+        
         xrSession = await navigator.xr.requestSession('immersive-ar', {
           requiredFeatures: ['hit-test', 'local-floor'],
           optionalFeatures: ['anchors', 'dom-overlay'],
@@ -639,6 +719,13 @@
           xrSurfaceIndicator.style.display = 'none';
           document.getElementById('ui').style.display = 'block';
           document.getElementById('lang-toggle').style.display = 'block';
+          
+          // Return to preview mode
+          isPreviewMode = true;
+          previewCanvas.classList.remove('hidden');
+          renderer.domElement.classList.remove('active');
+          animatePreview();
+          
           status.textContent = textContent[document.documentElement.lang].statusReady;
         });
 // Remove controller select event - we'll use button instead
@@ -790,6 +877,12 @@ function placeModel() {
     });
 
     window.addEventListener('resize', () => {
+      // Update preview renderer
+      previewRenderer.setSize(window.innerWidth, window.innerHeight);
+      previewCamera.aspect = window.innerWidth / window.innerHeight;
+      previewCamera.updateProjectionMatrix();
+      
+      // Update XR renderer
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
