@@ -456,8 +456,35 @@
     let hasPinData = false;
     let originalFileName = '';
     let existingPinData = null;
+    // Image tracking (visual reference) state
+    let currentMode = 'edit';
+    let markerFound = false;
+    let markerPoseMatrix = null;
+    let trackedImageBitmap = null;
+    let trackedImageWidth = 0.20; // meters; adjust as needed for sightlogo.png real size
+    const trackedImageId = 'sightlogo.png';
 
     const loader = new GLTFLoader();
+
+    async function loadTrackedImage() {
+      try {
+        // Try to fetch sightlogo.png from root, then fallback to icon/
+        let resp = await fetch(trackedImageId);
+        if (!resp.ok) {
+          resp = await fetch('icon/' + trackedImageId);
+        }
+        if (!resp.ok) {
+          throw new Error('Failed to fetch tracked image');
+        }
+        const blob = await resp.blob();
+        trackedImageBitmap = await createImageBitmap(blob);
+        return true;
+      } catch (e) {
+        console.warn('Image tracking bitmap load failed:', e);
+        trackedImageBitmap = null;
+        return false;
+      }
+    }
 
     function loadModelByPrefix(prefixVal) {
       return new Promise((resolve, reject) => {
@@ -758,16 +785,23 @@
         return;
       }
       try {
+        currentMode = mode;
         // Stop preview mode
         isPreviewMode = false;
         previewCanvas.classList.add('hidden');
         renderer.domElement.classList.add('active');
-        
-        xrSession = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test', 'local-floor'],
-          optionalFeatures: ['anchors', 'dom-overlay'],
+        // Load tracked image (visual reference)
+        await loadTrackedImage();
+        const sessionInit = {
+          requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
+          optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
           domOverlay: { root: xrOverlay }
-        });
+        };
+        if (trackedImageBitmap) {
+          // Provide tracked image descriptor if available
+          sessionInit.trackedImages = [{ image: trackedImageBitmap, widthInMeters: trackedImageWidth }];
+        }
+        xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
         renderer.xr.setSession(xrSession);
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
         if (mode === 'edit') {
@@ -781,7 +815,7 @@
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
         document.getElementById('lang-toggle').style.display = 'none';
-        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'none';
+        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'block';
         xrControls.style.display = 'none';
         
         xrSession.addEventListener('end', () => {
@@ -804,16 +838,32 @@
         status.textContent = textContent[document.documentElement.lang].statusAR;
         renderer.setAnimationLoop(onXRFrame);
 
-        // Place model for show or edit when existing pin data is present
+        // Setup UI message depending on mode and marker requirement
+        const currentLang = document.documentElement.lang;
+        if (mode === 'show') {
+          surfaceTextEl.textContent = currentLang === 'ar' ? 'اعثر على الصورة المرجعية لعرض النموذج' : 'Find the reference image to show the model';
+        } else {
+          surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح أو الصورة المرجعية' : 'Find a surface or the reference image';
+        }
+
+        // If we have pin data, prepare placement strategy
         if (existingPinData) {
-          applyPinDataToModel(existingPinData);
-          model.visible = true;
-          placed = true;
-          if (mode === 'edit') {
-            xrSurfaceIndicator.style.display = 'none';
-            xrControls.style.display = 'block';
-            xrScaleInput.value = model.scale.x;
-            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          const hasRelative = !!(existingPinData.relative && typeof existingPinData.relative === 'object');
+          if (hasRelative && trackedImageBitmap) {
+            // Wait for markerFound in onXRFrame, then apply relative transform
+            placed = false;
+            model.visible = false;
+          } else {
+            // Fallback to absolute placement
+            applyPinDataToModel(existingPinData);
+            model.visible = true;
+            placed = true;
+            if (mode === 'edit') {
+              xrSurfaceIndicator.style.display = 'none';
+              xrControls.style.display = 'block';
+              xrScaleInput.value = model.scale.x;
+              xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+            }
           }
         }
       } catch (e) {
@@ -827,6 +877,36 @@
       const session = renderer.xr.getSession();
       if (!session) return;
       const pose = frame.getViewerPose(xrRefSpace);
+      // Image tracking results: update marker state
+      if (frame.getImageTrackingResults) {
+        const results = frame.getImageTrackingResults();
+        if (results && results.length > 0) {
+          for (const result of results) {
+            const state = result.trackingState;
+            if (state === 'tracked' || state === 'emulated') {
+              const mp = frame.getPose(result.imageSpace, xrRefSpace);
+              if (mp) {
+                markerFound = true;
+                markerPoseMatrix = new THREE.Matrix4().fromArray(mp.transform.matrix);
+                // If we have relative pin data and not yet placed, place now
+                if (!placed && existingPinData && existingPinData.relative) {
+                  applyPinDataRelativeToMarker(existingPinData);
+                  model.visible = true;
+                  placed = true;
+                  if (currentMode === 'edit') {
+                    xrSurfaceIndicator.style.display = 'none';
+                    xrControls.style.display = 'block';
+                    xrScaleInput.value = model.scale.x;
+                    xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+                  } else {
+                    xrSurfaceIndicator.style.display = 'none';
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
       if (hitTestSource && pose) {
         const results = frame.getHitTestResults(hitTestSource);
         if (results.length > 0) {
@@ -862,10 +942,30 @@
           hitLine.visible = false;
           reticleMaterial.color.setHex(0xff4444);
           const currentLang = document.documentElement.lang;
-          surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح' : 'Find a surface';
+          surfaceTextEl.textContent = currentLang === 'ar' ? (currentMode === 'show' ? 'اعثر على الصورة المرجعية' : 'ابحث عن سطح أو الصورة المرجعية') : (currentMode === 'show' ? 'Find the reference image' : 'Find a surface or the reference image');
         }
       }
       renderer.render(scene, camera);
+    }
+    function applyPinDataRelativeToMarker(pd) {
+      if (!pd || !pd.relative || !model || !markerPoseMatrix) return;
+      const rel = pd.relative;
+      const relMatrix = new THREE.Matrix4();
+      const relPos = new THREE.Vector3(rel.position.x, rel.position.y, rel.position.z);
+      const relQuat = new THREE.Quaternion(rel.quaternion.x, rel.quaternion.y, rel.quaternion.z, rel.quaternion.w);
+      const relScale = new THREE.Vector3(rel.scale.x, rel.scale.y, rel.scale.z);
+      relMatrix.compose(relPos, relQuat, relScale);
+      const worldMatrix = new THREE.Matrix4().copy(markerPoseMatrix).multiply(relMatrix);
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const s = new THREE.Vector3();
+      worldMatrix.decompose(p, q, s);
+      model.position.copy(p);
+      model.quaternion.copy(q);
+      model.scale.copy(s);
+      if (rel.rotation && typeof rel.rotation.y === 'number') {
+        model.rotation.y = rel.rotation.y;
+      }
     }
 function placeModel() {
       if (!currentHitPose || !model) return;
@@ -938,12 +1038,41 @@ function placeModel() {
         return;
       }
 
-      const pinData = {
-        position: { x: model.position.x, y: model.position.y, z: model.position.z },
-        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
-        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z },
-        rotation: { y: model.rotation.y }
-      };
+      // If we have a marker image available, require it for saving relative transform
+      if (trackedImageBitmap && !markerFound) {
+        const currentLang = document.documentElement.lang;
+        await showAlert(currentLang === 'ar' ? 'يرجى العثور على الصورة المرجعية قبل الحفظ' : 'Please find the reference image before saving');
+        return;
+      }
+
+      let pinData = null;
+      if (trackedImageBitmap && markerPoseMatrix) {
+        // Save relative to marker
+        const modelMatrix = new THREE.Matrix4().compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
+        const invMarker = new THREE.Matrix4().copy(markerPoseMatrix).invert();
+        const relMatrix = new THREE.Matrix4().multiplyMatrices(invMarker, modelMatrix);
+        const p = new THREE.Vector3();
+        const q = new THREE.Quaternion();
+        const s = new THREE.Vector3();
+        relMatrix.decompose(p, q, s);
+        pinData = {
+          ref: { type: 'image', id: trackedImageId, width: trackedImageWidth },
+          relative: {
+            position: { x: p.x, y: p.y, z: p.z },
+            quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
+            scale: { x: s.x, y: s.y, z: s.z },
+            rotation: { y: model.rotation.y }
+          }
+        };
+      } else {
+        // Fallback: save absolute transform
+        pinData = {
+          position: { x: model.position.x, y: model.position.y, z: model.position.z },
+          quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
+          scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z },
+          rotation: { y: model.rotation.y }
+        };
+      }
 
       const pinDataString = JSON.stringify(pinData);
       // Base64-URL بدون padding لتقليل طول المفتاح
