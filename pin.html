@@ -529,53 +529,90 @@
                 
                 // Load the model using GLTFLoader
                 loader.load(fileUrl, (gltf) => {
-                  console.log('Model loaded successfully');
+                  console.log('✓ Model loaded successfully');
                   model = gltf.scene;
                   model.visible = false;
                   model.scale.setScalar(1.0);
                   scene.add(model);
-                  console.log('Model added to XR scene');
+                  console.log('✓ Model added to XR scene');
                   
                   // Add to preview scene (deep clone for independent manipulation)
                   previewModel = gltf.scene.clone(true);
                   previewModel.scale.setScalar(1.0);
                   
+                  let meshCount = 0;
                   // Ensure all meshes are visible and have materials
                   previewModel.traverse((child) => {
                     if (child.isMesh) {
+                      meshCount++;
                       child.visible = true;
                       child.castShadow = true;
                       child.receiveShadow = true;
-                      // Ensure material exists
+                      
+                      // Ensure material exists and is visible
                       if (!child.material) {
-                        child.material = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                        child.material = new THREE.MeshStandardMaterial({ 
+                          color: 0xcccccc,
+                          metalness: 0.3,
+                          roughness: 0.7
+                        });
+                      } else if (child.material.opacity !== undefined) {
+                        child.material.transparent = true;
+                        child.material.opacity = 1.0;
                       }
-                      console.log('Mesh found:', child.name, 'Material:', child.material);
+                      
+                      // Force material update
+                      if (Array.isArray(child.material)) {
+                        child.material.forEach(mat => {
+                          mat.needsUpdate = true;
+                          mat.side = THREE.DoubleSide;
+                        });
+                      } else {
+                        child.material.needsUpdate = true;
+                        child.material.side = THREE.DoubleSide;
+                      }
+                      
+                      console.log('Mesh:', child.name || 'unnamed', 'Visible:', child.visible);
                     }
                   });
                   
+                  console.log(`✓ Found ${meshCount} meshes in model`);
+                  
                   previewScene.add(previewModel);
-                  console.log('Model added to preview scene, children count:', previewModel.children.length);
+                  console.log('✓ Model added to preview scene');
                   
                   // Center model in preview
                   const box = new THREE.Box3().setFromObject(previewModel);
                   const center = box.getCenter(new THREE.Vector3());
                   const size = box.getSize(new THREE.Vector3());
-                  previewModel.position.sub(center);
+                  
+                  // Center the model
+                  previewModel.position.x = -center.x;
+                  previewModel.position.y = -center.y;
+                  previewModel.position.z = -center.z;
+                  
+                  // Add a visible box helper to see the bounds
+                  const boxHelper = new THREE.BoxHelper(previewModel, 0x00ff00);
+                  previewScene.add(boxHelper);
+                  console.log('✓ Added box helper for visibility');
                   
                   // Adjust camera based on model size
                   const maxDim = Math.max(size.x, size.y, size.z);
                   const fov = previewCamera.fov * (Math.PI / 180);
-                  let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-                  cameraZ *= 2.5; // Add some padding
+                  let cameraZ = Math.abs(maxDim / Math.tan(fov / 2));
+                  cameraZ *= 1.5; // Reduced multiplier for closer view
+                  
                   previewCamera.position.set(cameraZ, cameraZ * 0.5, cameraZ);
                   previewCamera.lookAt(0, 0, 0);
                   previewControls.target.set(0, 0, 0);
                   previewControls.update();
                   
-                  console.log('Model size:', size, 'Camera distance:', cameraZ);
+                  console.log('Model size:', size);
+                  console.log('Model center:', center);
                   console.log('Camera position:', previewCamera.position);
+                  console.log('Camera distance:', cameraZ);
                   console.log('Preview scene children:', previewScene.children.length);
+                  console.log('✓ Setup complete - model should be visible now');
                   
                   modelKey = prefixVal;
                   currentModelKey = key;
