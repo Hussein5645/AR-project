@@ -907,8 +907,9 @@
     async function compileMindARTarget() {
       if (mindTargetBuffer) return mindTargetBuffer;
       if (!window.MINDAR || !window.MINDAR.IMAGE || !window.MINDAR.IMAGE.TargetCompiler) {
-        // Attempt fallback load from unpkg if primary CDN blocked
         try {
+          // Load core (non-module) bundle first, then compiler as a fallback path
+          await loadExternalScript('https://unpkg.com/mind-ar@1.2.4/dist/mindar-image.prod.js');
           await loadExternalScript('https://unpkg.com/mind-ar@1.2.4/dist/mindar-image-target-compiler.prod.js');
         } catch (e) {
           throw new Error('MindAR compiler not available');
