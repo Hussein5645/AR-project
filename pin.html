@@ -549,30 +549,45 @@
                       child.castShadow = true;
                       child.receiveShadow = true;
                       
-                      // Ensure material exists and is visible
+                      // Clone or create material to avoid affecting XR model
                       if (!child.material) {
                         child.material = new THREE.MeshStandardMaterial({ 
-                          color: 0xcccccc,
+                          color: 0xff6600,
                           metalness: 0.3,
-                          roughness: 0.7
-                        });
-                      } else if (child.material.opacity !== undefined) {
-                        child.material.transparent = true;
-                        child.material.opacity = 1.0;
-                      }
-                      
-                      // Force material update
-                      if (Array.isArray(child.material)) {
-                        child.material.forEach(mat => {
-                          mat.needsUpdate = true;
-                          mat.side = THREE.DoubleSide;
+                          roughness: 0.7,
+                          wireframe: false,
+                          side: THREE.DoubleSide
                         });
                       } else {
-                        child.material.needsUpdate = true;
-                        child.material.side = THREE.DoubleSide;
+                        // Clone material to avoid affecting original
+                        if (Array.isArray(child.material)) {
+                          child.material = child.material.map(mat => {
+                            const newMat = mat.clone();
+                            newMat.side = THREE.DoubleSide;
+                            newMat.transparent = false;
+                            newMat.opacity = 1.0;
+                            newMat.depthWrite = true;
+                            newMat.depthTest = true;
+                            newMat.needsUpdate = true;
+                            // Add emissive to make it visible even without lights
+                            if (newMat.emissive) newMat.emissive.setHex(0x333333);
+                            return newMat;
+                          });
+                        } else {
+                          const newMat = child.material.clone();
+                          newMat.side = THREE.DoubleSide;
+                          newMat.transparent = false;
+                          newMat.opacity = 1.0;
+                          newMat.depthWrite = true;
+                          newMat.depthTest = true;
+                          newMat.needsUpdate = true;
+                          // Add emissive to make it visible even without lights
+                          if (newMat.emissive) newMat.emissive.setHex(0x333333);
+                          child.material = newMat;
+                        }
                       }
                       
-                      console.log('Mesh:', child.name || 'unnamed', 'Visible:', child.visible);
+                      console.log('Mesh:', child.name || 'unnamed', 'Visible:', child.visible, 'Material:', child.material.type);
                     }
                   });
                   
