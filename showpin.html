@@ -167,9 +167,18 @@
         for (const item of listResult.Contents) {
           const key = item.Key;
           if (key.includes('_PINNED_')) {
-            // Extract encoded pin segment immediately following `_PINNED_`
-            const m = key.match(/_PINNED_([^_]+)(?:_|$)/);
-            if (m && m[1]) {
+            // Prefer capturing up to the next dot (file extension)
+            let m = key.match(/_PINNED_([^\.]+)\./);
+            if (!m) {
+              // Fallback: capture until end, then strip common extensions
+              const m2 = key.match(/_PINNED_(.+)$/);
+              if (m2 && m2[1]) {
+                const tail = m2[1];
+                pinDataEncoded = tail.replace(/\.(glb|gltf|vrm|fbx|obj|usd|usdz)$/i, '');
+                modelFile = key;
+                break;
+              }
+            } else if (m[1]) {
               pinDataEncoded = m[1];
               modelFile = key;
               break;
