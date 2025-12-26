@@ -10,7 +10,8 @@
   <style>
     body[lang="ar"] { direction: rtl; }
     body[lang="en"] { direction: ltr; }
-    body { margin: 0; font-family: Arial, sans-serif; background: #121212; color: #fff; overflow: hidden; }
+    html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { font-family: Arial, sans-serif; background: #121212; color: #fff; }
     #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; pointer-events: auto; }
     #ui h2 { margin: 0 0 8px 0; font-size: 18px; }
     #ui .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -553,6 +554,7 @@
     const handleXRSelect = () => placeModel();
 
     const loader = new GLTFLoader();
+    loader.setCrossOrigin('anonymous');
 
     function loadExternalScript(src) {
       return new Promise((resolve, reject) => {
@@ -984,12 +986,18 @@
       mindarCamera = mindarThree.camera;
       mindarRenderer.domElement.classList.add('mindar-canvas');
       mindarRenderer.setSize(window.innerWidth, window.innerHeight);
+      mindarRenderer.domElement.style.position = 'fixed';
+      mindarRenderer.domElement.style.inset = '0';
+      mindarRenderer.domElement.style.width = '100vw';
+      mindarRenderer.domElement.style.height = '100vh';
       const videoEl = mindarThree.video;
       if (videoEl) {
         videoEl.classList.add('mindar-video');
         videoEl.style.objectFit = 'cover';
         videoEl.style.width = '100vw';
         videoEl.style.height = '100vh';
+        videoEl.style.position = 'fixed';
+        videoEl.style.inset = '0';
       }
       // Add some light
       const hemi2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
@@ -1004,9 +1012,6 @@
         xrImageIndicator.classList.add('found');
         xrImageIndicator.style.display = 'block';
         imageTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
-        setTimeout(() => {
-          xrImageIndicator.style.display = 'none';
-        }, 1200);
         anchorScanVisual.style.display = 'none';
         surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
         // Attach model to anchor group
@@ -1243,6 +1248,8 @@
       if (mindarThree && mindarThree.video) {
         mindarThree.video.style.width = '100vw';
         mindarThree.video.style.height = '100vh';
+        mindarThree.video.style.position = 'fixed';
+        mindarThree.video.style.inset = '0';
       }
     });
 
