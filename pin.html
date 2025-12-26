@@ -10,16 +10,16 @@
     body[lang="ar"] { direction: rtl; }
     body[lang="en"] { direction: ltr; }
     body { margin: 0; font-family: Arial, sans-serif; background: #121212; color: #fff; overflow: hidden; }
-    #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; }
+    #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; pointer-events: auto; }
     #ui h2 { margin: 0 0 8px 0; font-size: 18px; }
     #ui .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
     #ui input[type="text"], #ui input[type="range"] { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #2a2a2a; color: #fff; }
     #ui input[type="text"]::placeholder { color: #bbb; }
-    #ui button { padding: 10px 14px; border: none; border-radius: 6px; background: #007bff; color: #fff; font-weight: bold; cursor: pointer; }
+    #ui button { padding: 10px 14px; border: none; border-radius: 6px; background: #007bff; color: #fff; font-weight: bold; cursor: pointer; pointer-events: auto; }
     #ui button.secondary { background: #444; }
     #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { font-size: 12px; color: #bbb; margin-top: 4px; }
-    #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
+    #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; pointer-events: auto; }
     #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
     #preview-canvas.hidden { display: none; }
     canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; z-index: 1; }
