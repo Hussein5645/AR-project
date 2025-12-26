@@ -340,6 +340,11 @@
       return null;
     }
 
+    function hasPinnedAfterPrefix(key, prefixLen = 10) {
+      const idx = key.toLowerCase().indexOf('_pinned_');
+      return idx >= (prefixLen + 1); // +1 لحرف underscore بعد المعرّف
+    }
+
     function getQueryParam(name) {
       const urlParams = new URLSearchParams(window.location.search);
       return urlParams.get(name);
@@ -698,10 +703,21 @@
       try {
         await loadModelByPrefix(urlModelKey.trim());
         const currentLang = document.documentElement.lang;
-        // Derive existing pin data from currentModelKey if present
-        if (currentModelKey && currentModelKey.includes('_PINNED_')) {
-          existingPinData = extractPinDataFromKey(currentModelKey);
-          hasPinData = !!existingPinData;
+        // بعد التحميل، افحص كل العناصر تحت الـ Prefix لاكتشاف pinned
+        try {
+          const listRes = await s3.listObjectsV2({ Bucket: bucketName, Prefix: urlModelKey.trim() }).promise();
+          if (listRes && listRes.Contents && listRes.Contents.length > 0) {
+            const pinnedItem = listRes.Contents.find(it => hasPinnedAfterPrefix(it.Key));
+            if (pinnedItem) {
+              hasPinData = true;
+              existingPinData = extractPinDataFromKey(pinnedItem.Key);
+            } else {
+              hasPinData = false;
+              existingPinData = null;
+            }
+          }
+        } catch (eList) {
+          console.warn('Failed to list for pinned items:', eList);
         }
 
         // Enable buttons accordingly
@@ -929,11 +945,16 @@ function placeModel() {
       };
 
       const pinDataString = JSON.stringify(pinData);
-      const encodedPinData = btoa(pinDataString);
-      
-      // Create new key with PINNED identifier and preserve original filename
-      // Format: {prefix}_PINNED_{encodedData}_{originalFileName}
-      const newKey = `${modelKey}_PINNED_${encodedPinData}_${originalFileName}`;
+      // Base64-URL بدون padding لتقليل طول المفتاح
+      const encodedPinData = btoa(pinDataString)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+
+      // استخدم نفس الامتداد للكائن الحالي (glb/gltf)
+      const ext = (currentModelKey.split('.').pop() || 'glb').toLowerCase();
+      // مفتاح قصير: {prefix}_PINNED_{encoded}.{ext}
+      const newKey = `${modelKey}_PINNED_${encodedPinData}.${ext}`;
 
       try {
         const currentLang = document.documentElement.lang;
