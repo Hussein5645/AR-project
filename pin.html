@@ -6,6 +6,7 @@
   <title>Pin AR Model (WebXR)</title>
   <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
   <script src="aws-config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-target-compiler.prod.js"></script>
   <style>
     body[lang="ar"] { direction: rtl; }
     body[lang="en"] { direction: ltr; }
@@ -182,7 +183,8 @@
     {
       "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/"
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/",
+        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-three.module.js"
       }
     }
   </script>
@@ -191,6 +193,7 @@
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { MindARThree } from 'mindar-image-three';
 
     // Language content
     const textContent = {
@@ -460,11 +463,9 @@
     animatePreview();
     console.log('Preview animation started');
 
-    // Three.js setup for XR
+    // Three.js setup for XR (used for preview only; AR handled by MindAR renderer)
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    // Ensure XR renderer uses sRGB color space for correct brightness
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.xr.enabled = true;
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.domElement.classList.add('xr');
     document.body.appendChild(renderer.domElement);
@@ -530,6 +531,15 @@
     const trackedImageId = 'sightlogo.png';
     let imageTrackingSupported = false;
     let anchorReady = false;
+
+    // MindAR state
+    let mindarThree = null;
+    let mindarAnchor = null;
+    let mindarRenderer = null;
+    let mindarScene = null;
+    let mindarCamera = null;
+    let mindTargetBuffer = null;
+    let mindarRunning = false;
 
     const handleXRSelect = () => placeModel();
 
@@ -848,105 +858,34 @@
     }
 
     async function startAR(mode = 'edit') {
-      if (!navigator.xr) {
-        const currentLang = document.documentElement.lang;
-        await showAlert(textContent[currentLang].webxrNotSupported);
-        return;
-      }
       try {
         currentMode = mode;
         anchorReady = false;
         markerFound = false;
         markerPoseMatrix = null;
         anchorPoseMatrix = null;
+        placed = false;
         // Stop preview mode
         isPreviewMode = false;
         previewCanvas.classList.add('hidden');
-        renderer.domElement.classList.add('active');
-        // Load tracked image (visual reference) if available, but do not require; allow generic anchors via hit-test
-        await loadTrackedImage();
-        let sessionInit = {
-          requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : ['hit-test']),
-          optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
-          domOverlay: { root: xrOverlay }
-        };
-        if (trackedImageBitmap) {
-          sessionInit.trackedImages = [{ image: trackedImageBitmap, widthInMeters: trackedImageWidth }];
-        }
-        try {
-          xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
-          imageTrackingSupported = !!trackedImageBitmap;
-        } catch (eReq) {
-          console.warn('Request session with image tracking failed, retrying without image tracking:', eReq);
-          imageTrackingSupported = false;
-          // Retry without trackedImages and image-tracking
-          sessionInit = {
-            requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
-            optionalFeatures: ['anchors', 'dom-overlay'],
-            domOverlay: { root: xrOverlay }
-          };
-          xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
-        }
-        renderer.xr.setSession(xrSession);
-        xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
-        if (mode === 'edit') {
-          viewerSpace = await xrSession.requestReferenceSpace('viewer');
-          hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
-        } else {
-          viewerSpace = null;
-          hitTestSource = null;
-        }
+        renderer.domElement.classList.remove('active');
+        renderer.setAnimationLoop(null);
 
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
         document.getElementById('lang-toggle').style.display = 'none';
         xrSurfaceIndicator.style.display = 'none';
-        xrImageIndicator.style.display = 'none';
-        xrImageIndicator.classList.remove('scanning');
+        xrImageIndicator.style.display = 'block';
+        xrImageIndicator.classList.add('scanning');
         anchorScanVisual.style.display = 'block';
         xrControls.style.display = 'none';
-        xrSession.addEventListener('select', handleXRSelect);
-        
-        xrSession.addEventListener('end', () => {
-          if (xrSession) {
-            xrSession.removeEventListener('select', handleXRSelect);
-          }
-          xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
-          anchorReady = false; markerFound = false; markerPoseMatrix = null; anchorPoseMatrix = null;
-          document.getElementById('ar-overlay').style.display = 'none';
-          xrControls.style.display = 'none';
-          xrSurfaceIndicator.style.display = 'none';
-          anchorScanVisual.style.display = 'none';
-          surfaceHighlight.visible = false;
-          document.getElementById('ui').style.display = 'block';
-          document.getElementById('lang-toggle').style.display = 'block';
-          
-          // Return to preview mode
-          isPreviewMode = true;
-          previewCanvas.classList.remove('hidden');
-          renderer.domElement.classList.remove('active');
-          animatePreview();
-          
-          status.textContent = textContent[document.documentElement.lang].statusReady;
-        });
 
         status.textContent = textContent[document.documentElement.lang].statusAR;
-        renderer.setAnimationLoop(onXRFrame);
-
-        // Setup UI message for generic anchor selection (hit-test based)
         const currentLang = document.documentElement.lang;
-        imageTextEl.textContent = textContent[currentLang].anchorScan;
-        surfaceTextEl.textContent = textContent[currentLang].anchorScan;
-        if (mode === 'show') {
-          imageTextEl.textContent = textContent[currentLang].anchorShowPrompt;
-          surfaceTextEl.textContent = textContent[currentLang].anchorShowPrompt;
-        }
+        imageTextEl.textContent = currentMode === 'show' ? textContent[currentLang].anchorShowPrompt : textContent[currentLang].anchorScan;
+        surfaceTextEl.textContent = imageTextEl.textContent;
 
-        // If we have pin data, wait for anchor selection, then apply relative transform
-        if (existingPinData) {
-          placed = false;
-          model.visible = false;
-        }
+        await startMindARSession();
       } catch (e) {
         console.error(e);
         const currentLang = document.documentElement.lang;
@@ -954,80 +893,76 @@
       }
     }
 
-    function onXRFrame(time, frame) {
-      const session = renderer.xr.getSession();
-      if (!session) return;
-      const pose = frame.getViewerPose(xrRefSpace);
-      // Image tracking results: update marker state and indicator
-      // Image tracking is optional now; anchor selection is hit-test based.
-      if (imageTrackingSupported && frame.getImageTrackingResults) {
-        const results = frame.getImageTrackingResults();
-        if (results && results.length > 0) {
-          for (const result of results) {
-            const state = result.trackingState;
-            if (state === 'tracked' || state === 'emulated') {
-              const mp = frame.getPose(result.imageSpace, xrRefSpace);
-              if (mp) {
-                markerFound = true;
-                markerPoseMatrix = new THREE.Matrix4().fromArray(mp.transform.matrix);
-              }
-            }
-          }
-        }
+    async function compileMindARTarget() {
+      if (mindTargetBuffer) return mindTargetBuffer;
+      if (!window.MINDAR || !window.MINDAR.IMAGE || !window.MINDAR.IMAGE.TargetCompiler) {
+        throw new Error('MindAR compiler not available');
       }
-
-      if (hitTestSource && pose) {
-        const results = frame.getHitTestResults(hitTestSource);
-        if (results.length > 0) {
-          const hit = results[0];
-          const hitPose = hit.getPose(xrRefSpace);
-          currentHitPose = hitPose;
-          reticle.visible = true;
-          reticleMaterial.color.setHex(0x00ffaa);
-          reticle.matrix.fromArray(hitPose.transform.matrix);
-
-          surfacePulse.visible = true;
-          surfacePulse.matrix.fromArray(hitPose.transform.matrix);
-          const t = time * 0.004;
-          surfacePulse.material.opacity = 0.15 + 0.15 * Math.sin(t);
-
-          surfaceHighlight.visible = true;
-          surfaceHighlight.matrix.fromArray(hitPose.transform.matrix);
-
-          const camPos = pose.views[0].transform.position;
-          const m = new THREE.Matrix4().fromArray(hitPose.transform.matrix);
-          const p = new THREE.Vector3();
-          const q = new THREE.Quaternion();
-          const s = new THREE.Vector3();
-          m.decompose(p, q, s);
-          const posAttr = hitLineGeom.getAttribute('position');
-          posAttr.setXYZ(0, camPos.x, camPos.y, camPos.z);
-          posAttr.setXYZ(1, p.x, p.y, p.z);
-          posAttr.needsUpdate = true;
-          hitLine.visible = true;
-
-          const currentLang = document.documentElement.lang;
-          if (!anchorReady) {
-            surfaceTextEl.textContent = currentLang === 'ar' ? 'اختر هذه النقطة كمرساة' : 'Tap to set anchor here';
-          } else {
-            surfaceTextEl.textContent = currentLang === 'ar' ? 'تم العثور على سطح - اضغط لوضع النموذج' : 'Surface found - tap to place model';
-          }
-        } else {
-          reticle.visible = false;
-          surfacePulse.visible = false;
-          hitLine.visible = false;
-          surfaceHighlight.visible = false;
-          reticleMaterial.color.setHex(0xff4444);
-          const currentLang = document.documentElement.lang;
-          surfaceTextEl.textContent = textContent[currentLang].anchorScan;
-        }
-      } else if (!anchorReady) {
-        reticle.visible = false;
-        surfacePulse.visible = false;
-        hitLine.visible = false;
-        surfaceHighlight.visible = false;
+      const compiler = new window.MINDAR.IMAGE.TargetCompiler();
+      // Try root then icon/
+      try {
+        await compiler.addImage(trackedImageId);
+      } catch (e) {
+        await compiler.addImage('icon/' + trackedImageId);
       }
-      renderer.render(scene, camera);
+      mindTargetBuffer = compiler.compile();
+      return mindTargetBuffer;
+    }
+
+    async function startMindARSession() {
+      await compileMindARTarget();
+      mindarThree = new MindARThree({
+        container: document.body,
+        imageTargetSrc: mindTargetBuffer,
+        uiLoading: false,
+        uiScanning: false,
+      });
+      mindarRenderer = mindarThree.renderer;
+      mindarScene = mindarThree.scene;
+      mindarCamera = mindarThree.camera;
+      // Add some light
+      const hemi2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+      mindarScene.add(hemi2);
+
+      mindarAnchor = mindarThree.addAnchor(0);
+      mindarAnchor.onTargetFound = () => {
+        anchorReady = true;
+        anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
+        xrImageIndicator.style.display = 'none';
+        anchorScanVisual.style.display = 'none';
+        surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
+        // Attach model to anchor group
+        if (model) {
+          if (model.parent) {
+            model.parent.remove(model);
+          }
+          mindarAnchor.group.add(model);
+          if (existingPinData && existingPinData.relative) {
+            applyPinDataRelativeToAnchor(existingPinData);
+          } else if (existingPinData) {
+            applyPinDataToModel(existingPinData);
+          }
+          model.visible = true;
+          placed = true;
+          xrControls.style.display = 'block';
+          xrScaleInput.value = model.scale.x;
+          xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+        }
+      };
+      mindarAnchor.onTargetLost = () => {
+        anchorReady = false;
+        anchorPoseMatrix = null;
+        surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
+      };
+
+      await mindarThree.start();
+      mindarRunning = true;
+      mindarRenderer.setAnimationLoop(() => {
+        if (anchorReady && mindarAnchor && mindarAnchor.group) {
+          anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
+        }
+        mindarRenderer.render(mindarScene, mindarCamera);
+      });
     }
     function applyPinDataRelativeToMarker(pd) {
       if (!pd || !pd.relative || !model || !markerPoseMatrix) return;
@@ -1071,56 +1006,18 @@
       }
     }
     function placeModel() {
-      if (!currentHitPose || !model) return;
-
-      // If no anchor yet, set anchor at current hit pose and keep model hidden until next tap.
-      if (!anchorReady) {
-        anchorPoseMatrix = new THREE.Matrix4().fromArray(currentHitPose.transform.matrix);
-        anchorReady = true;
-        const currentLang = document.documentElement.lang;
-        surfaceTextEl.textContent = currentLang === 'ar' ? 'المرساة محددة - اضغط لوضع النموذج' : 'Anchor set - tap to place the model';
-        anchorScanVisual.style.display = 'none';
-        // If pin data exists and is relative, apply immediately after anchor lock in show mode
-        if (existingPinData && existingPinData.relative && currentMode === 'show') {
-          applyPinDataRelativeToAnchor(existingPinData);
-          model.visible = true;
-          placed = true;
-          xrSurfaceIndicator.style.display = 'none';
-        }
-        return;
-      }
-
-      // Place model at anchor (or reticle relative to anchor if needed)
-      const anchorMatrix = anchorPoseMatrix ? anchorPoseMatrix.clone() : new THREE.Matrix4().fromArray(currentHitPose.transform.matrix);
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scl = new THREE.Vector3(1, 1, 1);
-      anchorMatrix.decompose(pos, quat, scl);
-
-      // If we have saved pin data and not yet placed, apply it relative to the selected anchor
+      if (!model || !anchorPoseMatrix || !anchorReady) return;
       if (!placed && existingPinData) {
         if (existingPinData.relative) {
           applyPinDataRelativeToAnchor(existingPinData);
         } else {
           applyPinDataToModel(existingPinData);
         }
-        model.visible = true;
-        placed = true;
-        xrSurfaceIndicator.style.display = 'none';
-        xrControls.style.display = 'block';
-        xrScaleInput.value = model.scale.x;
-        xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
-        return;
       }
-
-      model.position.copy(pos);
-      model.quaternion.copy(quat);
       model.visible = true;
       placed = true;
-  
       xrSurfaceIndicator.style.display = 'none';
       xrControls.style.display = 'block';
-  
       xrScaleInput.value = model.scale.x;
       xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
     }
@@ -1155,6 +1052,9 @@
         markerFound = false;
         anchorReady = false;
         anchorPoseMatrix = null;
+        if (mindarAnchor && mindarAnchor.group) {
+          mindarAnchor.group.remove(model);
+        }
         // Hide controls and re-show surface indicator
         xrControls.style.display = 'none';
         xrSurfaceIndicator.style.display = currentMode === 'edit' ? 'block' : 'none';
@@ -1246,7 +1146,7 @@
       previewCamera.aspect = window.innerWidth / window.innerHeight;
       previewCamera.updateProjectionMatrix();
       
-      // Update XR renderer
+      // Update preview/XR renderer (preview only; MindAR handles its own)
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
