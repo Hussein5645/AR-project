@@ -125,6 +125,29 @@
     let model = null;
     let pinData = null;
 
+    function decodePinData(encoded) {
+      if (!encoded) return null;
+      // Try Base64 / Base64-URL
+      try {
+        let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        if (pad) b64 += '='.repeat(4 - pad);
+        const jsonStr = atob(b64);
+        const obj = JSON.parse(jsonStr);
+        return obj;
+      } catch (e1) {
+        // Try URI-encoded JSON (encodeURIComponent(JSON.stringify(...)))
+        try {
+          const jsonStr = decodeURIComponent(encoded);
+          const obj = JSON.parse(jsonStr);
+          return obj;
+        } catch (e2) {
+          console.error('Pin data decode failed:', { e1, e2 });
+          return null;
+        }
+      }
+    }
+
     async function loadModelWithPin(prefix) {
       try {
         // List objects with prefix
@@ -143,18 +166,13 @@
 
         for (const item of listResult.Contents) {
           const key = item.Key;
-          if (key.startsWith(prefix) && key.includes('_PINNED_')) {
-            // Has pin data with PINNED identifier
-            const parts = key.split('_PINNED_');
-            if (parts.length > 1) {
-              const afterPinned = parts[1];
-              // Extract encoded data (everything before the last underscore and filename)
-              const matches = afterPinned.match(/^([^_]+)_/);
-              if (matches) {
-                pinDataEncoded = matches[1];
-                modelFile = key;
-                break;
-              }
+          if (key.includes('_PINNED_')) {
+            // Extract encoded pin segment immediately following `_PINNED_`
+            const m = key.match(/_PINNED_([^_]+)(?:_|$)/);
+            if (m && m[1]) {
+              pinDataEncoded = m[1];
+              modelFile = key;
+              break;
             }
           }
         }
@@ -165,12 +183,10 @@
           return;
         }
 
-        // Decode pin data
-        try {
-          const pinDataString = atob(pinDataEncoded);
-          pinData = JSON.parse(pinDataString);
-        } catch (e) {
-          console.error('Failed to decode pin data:', e);
+        // Decode pin data (supports Base64, Base64-URL, or URI-encoded JSON)
+        pinData = decodePinData(pinDataEncoded);
+        if (!pinData) {
+          console.error('Failed to decode pin data from:', pinDataEncoded);
           showError();
           return;
         }
@@ -260,8 +276,8 @@
 
     // Load model on page load
     const modelKey = getQueryParam('model');
-    if (modelKey && modelKey.length === 10) {
-      loadModelWithPin(modelKey);
+    if (modelKey && modelKey.trim() !== '') {
+      loadModelWithPin(modelKey.trim());
     } else {
       showError();
     }
