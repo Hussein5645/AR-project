@@ -451,6 +451,7 @@
           }
           
           const key = data.Contents[0].Key;
+          console.log('Found model key:', key);
           const ext = key.split('.').pop().toLowerCase();
           
           // Check if model has pin data
@@ -464,6 +465,7 @@
               if (matches) {
                 const encodedData = matches[1];
                 originalFileName = matches[2];
+                console.log('Has pin data, original filename:', originalFileName);
                 try {
                   existingPinData = JSON.parse(atob(encodedData));
                 } catch (e) {
@@ -473,11 +475,10 @@
             }
           } else {
             hasPinData = false;
-            // Extract original filename (remove 10-char prefix)
-            originalFileName = key.substring(10); // Remove prefix (10 chars)
-            if (originalFileName.startsWith('_')) {
-              originalFileName = originalFileName.substring(1);
-            }
+            // Extract original filename (remove 10-char prefix + underscore)
+            const prefixLength = 11; // 10 chars prefix + 1 underscore
+            originalFileName = key.substring(prefixLength);
+            console.log('No pin data, original filename:', originalFileName);
           }
           
           if (ext !== 'glb' && ext !== 'gltf') {
@@ -513,9 +514,11 @@
                 
                 // Create URL from downloaded data
                 const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
+                console.log('Loading model from:', fileUrl);
                 
                 // Load the model using GLTFLoader
                 loader.load(fileUrl, (gltf) => {
+                  console.log('Model loaded successfully');
                   model = gltf.scene;
                   model.visible = false;
                   model.scale.setScalar(1.0);
@@ -525,11 +528,25 @@
                   previewModel = gltf.scene.clone();
                   previewModel.scale.setScalar(1.0);
                   previewScene.add(previewModel);
+                  console.log('Model added to preview scene');
                   
                   // Center model in preview
                   const box = new THREE.Box3().setFromObject(previewModel);
                   const center = box.getCenter(new THREE.Vector3());
+                  const size = box.getSize(new THREE.Vector3());
                   previewModel.position.sub(center);
+                  
+                  // Adjust camera based on model size
+                  const maxDim = Math.max(size.x, size.y, size.z);
+                  const fov = previewCamera.fov * (Math.PI / 180);
+                  let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                  cameraZ *= 2.5; // Add some padding
+                  previewCamera.position.set(cameraZ, cameraZ * 0.5, cameraZ);
+                  previewCamera.lookAt(0, 0, 0);
+                  previewControls.target.set(0, 0, 0);
+                  previewControls.update();
+                  
+                  console.log('Model size:', size, 'Camera distance:', cameraZ);
                   
                   // Start preview animation
                   animatePreview();
@@ -538,7 +555,14 @@
                   currentModelKey = key;
                   showLoadingScreen(false);
                   resolve({ key, url: fileUrl });
-                }, undefined, (e) => {
+                }, (progress) => {
+                  // Loading progress
+                  if (progress.lengthComputable) {
+                    const percentComplete = (progress.loaded / progress.total) * 100;
+                    console.log('GLTFLoader progress:', percentComplete.toFixed(2) + '%');
+                  }
+                }, (e) => {
+                  console.error('Error loading GLTF:', e);
                   showLoadingScreen(false);
                   reject(e);
                 });
