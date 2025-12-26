@@ -6,7 +6,7 @@
   <title>Pin AR Model (WebXR)</title>
   <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
   <script src="aws-config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-target-compiler.prod.js"></script>
+  <script type="module" src="lib/mindar/mindar-image.prod.js"></script>
   <style>
     body[lang="ar"] { direction: rtl; }
     body[lang="en"] { direction: ltr; }
@@ -184,7 +184,7 @@
       "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js",
         "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/",
-        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-three.prod.js"
+        "mindar-image-three": "./lib/mindar/mindar-image-three.prod.js"
       }
     }
   </script>
@@ -540,6 +540,8 @@
     let mindarCamera = null;
     let mindTargetBuffer = null;
     let mindarRunning = false;
+    const localMindARCore = './lib/mindar/mindar-image.prod.js';
+    const cdnMindARCore = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image.prod.js';
 
     const handleXRSelect = () => placeModel();
 
@@ -550,6 +552,7 @@
         const el = document.createElement('script');
         el.src = src;
         el.async = true;
+        el.type = 'module';
         el.onload = () => resolve();
         el.onerror = () => reject(new Error('Failed to load ' + src));
         document.head.appendChild(el);
@@ -906,16 +909,40 @@
 
     async function compileMindARTarget() {
       if (mindTargetBuffer) return mindTargetBuffer;
-      if (!window.MINDAR || !window.MINDAR.IMAGE || !window.MINDAR.IMAGE.TargetCompiler) {
+
+      async function ensureMindARCompiler() {
+        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
+        // Try local ES module import (preferred)
         try {
-          // Load core (non-module) bundle first, then compiler as a fallback path
-          await loadExternalScript('https://unpkg.com/mind-ar@1.2.4/dist/mindar-image.prod.js');
-          await loadExternalScript('https://unpkg.com/mind-ar@1.2.4/dist/mindar-image-target-compiler.prod.js');
+          const mod = await import(localMindARCore);
+          if (mod?.Compiler) {
+            window.MINDAR = window.MINDAR || {};
+            window.MINDAR.IMAGE = window.MINDAR.IMAGE || {};
+            window.MINDAR.IMAGE.Compiler = mod.Compiler;
+            return mod.Compiler;
+          }
         } catch (e) {
-          throw new Error('MindAR compiler not available');
+          console.warn('Local MindAR module import failed', e);
         }
+        // Try injecting local script (module tag) in case initial load missed
+        try {
+          await loadExternalScript(localMindARCore);
+        } catch (e) {
+          console.warn('Local MindAR script load failed', e);
+        }
+        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
+        // CDN fallback as last resort
+        try {
+          await loadExternalScript(cdnMindARCore);
+        } catch (e) {
+          console.warn('CDN MindAR script load failed', e);
+        }
+        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
+        throw new Error('MindAR compiler not available');
       }
-      const compiler = new window.MINDAR.IMAGE.TargetCompiler();
+
+      const CompilerClass = await ensureMindARCompiler();
+      const compiler = new CompilerClass();
       // Try root then icon/
       try {
         await compiler.addImage(trackedImageId);
