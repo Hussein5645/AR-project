@@ -133,6 +133,7 @@
     const qrCanvas = document.getElementById('qrcode');
     const loadingScreen = document.getElementById('loading-screen');
 
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     let loadedBytes = 0;
 
     // Toggle language
@@ -291,6 +292,19 @@
         status.textContent = textContent[document.documentElement.lang].statusLoaded;
         startARBtn.disabled = false;
         scaleInput.disabled = false;
+        
+        // Save key to URL
+        const newUrl = `${window.location.origin}${window.location.pathname}?model=${v}`;
+        window.history.replaceState(null, '', newUrl);
+        
+        // Show QR code on PC (non-mobile)
+        if (!isMobile) {
+          qrWrap.style.display = 'block';
+          QRCode.toCanvas(qrCanvas, newUrl, (error) => {
+            if (error) console.error('QR code error:', error);
+            console.log('QR code generated for pin URL!');
+          });
+        }
       } catch (e) {
         console.error(e);
         alert('تعذر تحميل النموذج: ' + e.message);

@@ -289,7 +289,7 @@
 
     <button id="controls-toggle-button" onclick="toggleControlsVisibility()"></button>
     <button id="upload-Button" onclick="window.location.href='upload.html'"></button>
-    <button id="pin-Button" onclick="window.location.href='pin.html'"></button>
+    <button id="pin-Button" onclick="openPinPage()"></button>
 
     <div id="controls">
         <button id="toggle-button" onclick="toggleControls()"></button>
@@ -568,6 +568,15 @@ QRCode.toCanvas(qrCodeContainer, newUrl, (error) => {
                 modelViewer.activateAR();
             } else {
                 alert('AR is only available on mobile devices.');
+            }
+        }
+
+        function openPinPage() {
+            const modelKey = getQueryParam('model');
+            if (modelKey) {
+                window.location.href = `pin.html?model=${modelKey}`;
+            } else {
+                window.location.href = 'pin.html';
             }
         }
 
