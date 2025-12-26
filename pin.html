@@ -318,6 +318,11 @@
     // Decision modal removed
     
     function showAlert(message) {
+      // Suppress popups while inside an XR session to avoid DOM overlay conflicts.
+      if (xrSession) {
+        console.warn('Alert suppressed during XR session:', message);
+        return Promise.resolve();
+      }
       return new Promise((resolve) => {
         alertMessage.textContent = message;
         alertModal.classList.add('show');
