@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>3D Model Upload</title>
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1482.0.min.js"></script>
+    <script src="aws-config.js"></script>
     <script src="https://static.parastorage.com/services/js-sdk/1.190.0/js/wixData.js"></script>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4681841565229362" crossorigin="anonymous"></script>
     <style>
@@ -156,13 +157,7 @@
         </div>
     </div>
     <script>
-        // Initialize AWS
-        AWS.config.update({
-            accessKeyId: "AKIA276CMBVE77VJTOQC",
-            secretAccessKey: "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",
-            region: "eu-north-1",
-        });
-
+        // AWS configuration is loaded from aws-config.js
         const s3 = new AWS.S3();
         const MAX_FILE_SIZE = 250 * 1024 * 1024;
         const ALLOWED_EXTENSIONS = [".glb", ".png", ".jpg"];
