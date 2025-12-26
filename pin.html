@@ -1,21 +1,31 @@
-        anchorReady = false;
-        markerFound = false;
-        markerPoseMatrix = null;
-        anchorPoseMatrix = null;
-        // Stop preview mode
-        isPreviewMode = false;
-        previewCanvas.classList.add('hidden');
-        renderer.domElement.classList.add('active');
-        // Load tracked image (optional) but anchor selection is via hit-test
-        await loadTrackedImage();
-        let sessionInit = {
-          requiredFeatures: ['local-floor', 'hit-test'],
-          optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
-          domOverlay: { root: xrOverlay }
-        };
-        if (trackedImageBitmap) {
-          sessionInit.trackedImages = [{ image: trackedImageBitmap, widthInMeters: trackedImageWidth }];
-        }
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pin AR Model (WebXR)</title>
+  <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+  <script src="aws-config.js"></script>
+  <style>
+    body[lang="ar"] { direction: rtl; }
+    body[lang="en"] { direction: ltr; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #121212; color: #fff; overflow: hidden; }
+    #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; pointer-events: auto; }
+    #ui h2 { margin: 0 0 8px 0; font-size: 18px; }
+    #ui .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    #ui input[type="text"], #ui input[type="range"] { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #2a2a2a; color: #fff; }
+    #ui input[type="text"]::placeholder { color: #bbb; }
+    #ui button { padding: 10px 14px; border: none; border-radius: 6px; background: #007bff; color: #fff; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    #ui button.secondary { background: #444; }
+    #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #status { font-size: 12px; color: #bbb; margin-top: 4px; }
+    #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; pointer-events: auto; }
+    #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
+    #preview-canvas.hidden { display: none; }
+    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; z-index: 1; }
+    canvas.xr.active { display: block; }
+    #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
+    #loading-screen.hidden { opacity: 0; pointer-events: none; }
     #ar-overlay { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 15px 20px; border-radius: 8px; display: none; z-index: 25; min-width: 280px; text-align: center; }
     #ar-overlay button { width: 100%; margin: 5px 0; padding: 12px; border: none; border-radius: 6px; background: #28a745; color: #fff; font-weight: bold; cursor: pointer; }
     #ar-overlay button:hover { background: #218838; }
@@ -24,12 +34,23 @@
     #xr-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
     #xr-overlay > * { pointer-events: auto; }
     #xr-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 20px; border-radius: 12px; display: none; min-width: 320px; }
-            requiredFeatures: ['local-floor', 'hit-test'],
+    body[lang="ar"] #xr-controls { direction: rtl; }
     body[lang="en"] #xr-controls { direction: ltr; }
     #xr-controls h3 { margin: 0 0 15px 0; font-size: 16px; color: #fff; text-align: center; }
     #xr-controls .control-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
     #xr-controls label { color: #fff; font-size: 14px; min-width: 60px; }
     #xr-controls input[type="range"] { flex: 1; }
+    #xr-controls .value-display { color: #0f0; font-weight: bold; min-width: 60px; text-align: center; }
+    #xr-controls button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin: 5px 0; font-size: 14px; }
+    #xr-controls .btn-primary { background: #28a745; color: #fff; }
+    #xr-controls .btn-primary:hover { background: #218838; }
+    #xr-controls .btn-secondary { background: #6c757d; color: #fff; }
+    #xr-controls .btn-secondary:hover { background: #5a6268; }
+    #xr-controls .status-text { color: #ffc107; font-size: 13px; text-align: center; margin: 10px 0; }
+    #xr-surface-indicator { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffaa; font-size: 18px; text-align: center; display: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
+    #xr-surface-indicator .icon { font-size: 48px; margin-bottom: 10px; }
+    #xr-pin-btn { padding: 16px 32px; border: none; border-radius: 50px; background: #00ffaa; color: #000; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(0,255,170,0.4); transition: all 0.3s; }
+    #xr-pin-btn:hover { background: #00dd88; transform: scale(1.05); box-shadow: 0 6px 20px rgba(0,255,170,0.6); }
     #xr-pin-btn:active { transform: scale(0.95); }
     /* Image tracking indicator */
     #xr-image-indicator { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 8px; display: none; min-width: 260px; text-align: center; z-index: 26; }
