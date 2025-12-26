@@ -762,10 +762,6 @@
           
           status.textContent = textContent[document.documentElement.lang].statusReady;
         });
-// Remove controller select event - we'll use button instead
-        const controller = renderer.xr.getController(0);
-        controller.addEventListener('select', onSelect);
-        scene.add(controller);
 
         status.textContent = textContent[document.documentElement.lang].statusAR;
         renderer.setAnimationLoop(onXRFrame);
