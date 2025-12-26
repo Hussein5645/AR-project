@@ -56,6 +56,9 @@
     #xr-image-indicator { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 8px; display: none; min-width: 260px; text-align: center; z-index: 26; }
     #xr-image-indicator .icon { font-size: 28px; margin-bottom: 6px; }
     #xr-image-indicator .status { font-size: 14px; color: #bbb; }
+    #xr-image-indicator.scanning { box-shadow: 0 0 12px rgba(0,255,170,0.35); border: 1px solid rgba(0,255,170,0.35); }
+    #xr-image-indicator.scanning::after { content: ''; display: block; width: 26px; height: 26px; border: 3px solid #00ffaa; border-right-color: transparent; border-radius: 50%; margin: 10px auto 0; animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     
     /* Modal Dialogs */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
@@ -189,7 +192,12 @@
         alertOk: 'حسناً',
         webxrNotSupported: 'WebXR غير مدعوم على هذا الجهاز/المتصفح.',
         arSessionFailed: 'فشل بدء جلسة AR',
-        noPinDataToSave: 'لا توجد بيانات تثبيت لحفظها'
+        noPinDataToSave: 'لا توجد بيانات تثبيت لحفظها',
+        anchorScan: 'امسح صورة المرساة للمتابعة',
+        anchorLocked: 'تم قفل المرساة - يمكنك التثبيت الآن',
+        anchorRequired: 'يجب العثور على مرساة (صورة) قبل المتابعة',
+        anchorSavingGuard: 'يرجى العثور على المرساة قبل الحفظ',
+        anchorShowPrompt: 'حدد مرساة لعرض الموقع'
       },
       en: {
         title: 'Pin the Model in AR',
@@ -219,7 +227,12 @@
         alertOk: 'OK',
         webxrNotSupported: 'WebXR is not supported on this device/browser.',
         arSessionFailed: 'Failed to start AR session',
-        noPinDataToSave: 'No pin data to save'
+        noPinDataToSave: 'No pin data to save',
+        anchorScan: 'Scan the anchor image to continue',
+        anchorLocked: 'Anchor locked - you can place now',
+        anchorRequired: 'You must find the anchor image before continuing',
+        anchorSavingGuard: 'Please find the anchor before saving',
+        anchorShowPrompt: 'Scan an anchor to show the pin'
       }
     };
 
@@ -474,6 +487,7 @@
     let trackedImageWidth = 0.20; // meters; adjust as needed for sightlogo.png real size
     const trackedImageId = 'sightlogo.png';
     let imageTrackingSupported = false;
+    let anchorReady = false;
 
     const loader = new GLTFLoader();
 
@@ -797,12 +811,25 @@
       }
       try {
         currentMode = mode;
+        anchorReady = false;
+        markerFound = false;
+        markerPoseMatrix = null;
         // Stop preview mode
         isPreviewMode = false;
         previewCanvas.classList.add('hidden');
         renderer.domElement.classList.add('active');
-        // Load tracked image (visual reference)
-        await loadTrackedImage();
+        // Load tracked image (visual reference) and require it as anchor
+        const imageOk = await loadTrackedImage();
+        if (!imageOk) {
+          const currentLang = document.documentElement.lang;
+          await showAlert(textContent[currentLang].anchorRequired);
+          // Restore preview
+          isPreviewMode = true;
+          previewCanvas.classList.remove('hidden');
+          renderer.domElement.classList.remove('active');
+          animatePreview();
+          return;
+        }
         let sessionInit = {
           requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
           optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
@@ -826,6 +853,17 @@
           };
           xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
         }
+        if (!imageTrackingSupported) {
+          const currentLang = document.documentElement.lang;
+          await showAlert(textContent[currentLang].anchorRequired);
+          await xrSession.end();
+          // Restore preview
+          isPreviewMode = true;
+          previewCanvas.classList.remove('hidden');
+          renderer.domElement.classList.remove('active');
+          animatePreview();
+          return;
+        }
         renderer.xr.setSession(xrSession);
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
         if (mode === 'edit') {
@@ -839,12 +877,14 @@
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
         document.getElementById('lang-toggle').style.display = 'none';
-        xrSurfaceIndicator.style.display = mode === 'edit' ? 'block' : 'none';
+        xrSurfaceIndicator.style.display = 'none';
         xrImageIndicator.style.display = (trackedImageBitmap ? 'block' : 'none');
+        xrImageIndicator.classList.add('scanning');
         xrControls.style.display = 'none';
         
         xrSession.addEventListener('end', () => {
           xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
+          anchorReady = false; markerFound = false; markerPoseMatrix = null;
           document.getElementById('ar-overlay').style.display = 'none';
           xrControls.style.display = 'none';
           xrSurfaceIndicator.style.display = 'none';
@@ -866,12 +906,14 @@
         // Setup UI message depending on mode and marker requirement
         const currentLang = document.documentElement.lang;
         if (trackedImageBitmap) {
-          imageTextEl.textContent = currentLang === 'ar' ? 'جار البحث عن الصورة المرجعية...' : 'Scanning for the reference image...';
+          imageTextEl.textContent = textContent[currentLang].anchorScan;
         } else if (!imageTrackingSupported) {
           imageTextEl.textContent = currentLang === 'ar' ? 'تتبّع الصور غير مدعوم على هذا الجهاز' : 'Image tracking is not supported on this device';
         }
-        if (mode === 'edit') {
-          surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح أو الصورة المرجعية' : 'Find a surface or the reference image';
+        surfaceTextEl.textContent = textContent[currentLang].anchorScan;
+        if (mode === 'show') {
+          imageTextEl.textContent = textContent[currentLang].anchorShowPrompt;
+          surfaceTextEl.textContent = textContent[currentLang].anchorShowPrompt;
         }
 
         // If we have pin data, prepare placement strategy
@@ -916,15 +958,23 @@
               if (mp) {
                 markerFound = true;
                 markerPoseMatrix = new THREE.Matrix4().fromArray(mp.transform.matrix);
+                anchorReady = true;
                 const currentLang = document.documentElement.lang;
-                imageTextEl.textContent = currentLang === 'ar' ? 'تم العثور على الصورة المرجعية ✅' : 'Reference image found ✅';
+                imageTextEl.textContent = textContent[currentLang].anchorLocked;
+                xrImageIndicator.classList.remove('scanning');
                 // If we have relative pin data and not yet placed, place now
-                if (!placed && existingPinData && existingPinData.relative) {
-                  applyPinDataRelativeToMarker(existingPinData);
+                if (anchorReady && currentMode === 'edit') {
+                  xrSurfaceIndicator.style.display = 'block';
+                }
+                if (!placed && existingPinData) {
+                  if (existingPinData.relative) {
+                    applyPinDataRelativeToMarker(existingPinData);
+                  } else {
+                    applyPinDataToModel(existingPinData);
+                  }
                   model.visible = true;
                   placed = true;
                   if (currentMode === 'edit') {
-                    xrSurfaceIndicator.style.display = 'none';
                     xrControls.style.display = 'block';
                     xrScaleInput.value = model.scale.x;
                     xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
@@ -936,11 +986,18 @@
             }
           }
         } else {
+          anchorReady = false;
+          markerFound = false;
           const currentLang = document.documentElement.lang;
-          imageTextEl.textContent = currentLang === 'ar' ? 'جار البحث عن الصورة المرجعية...' : 'Scanning for the reference image...';
+          imageTextEl.textContent = textContent[currentLang].anchorScan;
+          xrImageIndicator.classList.add('scanning');
+          xrSurfaceIndicator.style.display = 'none';
+          reticle.visible = false;
+          surfacePulse.visible = false;
+          hitLine.visible = false;
         }
       }
-      if (hitTestSource && pose) {
+      if (hitTestSource && pose && anchorReady) {
         const results = frame.getHitTestResults(hitTestSource);
         if (results.length > 0) {
           const hit = results[0];
@@ -975,8 +1032,12 @@
           hitLine.visible = false;
           reticleMaterial.color.setHex(0xff4444);
           const currentLang = document.documentElement.lang;
-          surfaceTextEl.textContent = currentLang === 'ar' ? (currentMode === 'show' ? 'اعثر على الصورة المرجعية' : 'ابحث عن سطح أو الصورة المرجعية') : (currentMode === 'show' ? 'Find the reference image' : 'Find a surface or the reference image');
+          surfaceTextEl.textContent = textContent[currentLang].anchorScan;
         }
+      } else if (!anchorReady) {
+        reticle.visible = false;
+        surfacePulse.visible = false;
+        hitLine.visible = false;
       }
       renderer.render(scene, camera);
     }
@@ -1001,7 +1062,12 @@
       }
     }
 function placeModel() {
-      if (!currentHitPose || !model) return;
+  if (!anchorReady || !markerFound) {
+    const currentLang = document.documentElement.lang;
+    showAlert(textContent[currentLang].anchorRequired);
+    return;
+  }
+  if (!currentHitPose || !model) return;
       // Place model at reticle
       const m = new THREE.Matrix4().fromArray(currentHitPose.transform.matrix);
       const pos = new THREE.Vector3();
@@ -1076,42 +1142,30 @@ function placeModel() {
         await showAlert(textContent[currentLang].noPinDataToSave);
         return;
       }
-
-      // If we have a marker image available, require it for saving relative transform
-      if (trackedImageBitmap && !markerFound) {
+      // Require anchor lock before saving; we only persist coordinates relative to the anchor image
+      if (!anchorReady || !markerFound || !markerPoseMatrix) {
         const currentLang = document.documentElement.lang;
-        await showAlert(currentLang === 'ar' ? 'يرجى العثور على الصورة المرجعية قبل الحفظ' : 'Please find the reference image before saving');
+        await showAlert(textContent[currentLang].anchorSavingGuard);
         return;
       }
 
-      let pinData = null;
-      if (trackedImageBitmap && markerPoseMatrix) {
-        // Save relative to marker
-        const modelMatrix = new THREE.Matrix4().compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
-        const invMarker = new THREE.Matrix4().copy(markerPoseMatrix).invert();
-        const relMatrix = new THREE.Matrix4().multiplyMatrices(invMarker, modelMatrix);
-        const p = new THREE.Vector3();
-        const q = new THREE.Quaternion();
-        const s = new THREE.Vector3();
-        relMatrix.decompose(p, q, s);
-        pinData = {
-          ref: { type: 'image', id: trackedImageId, width: trackedImageWidth },
-          relative: {
-            position: { x: p.x, y: p.y, z: p.z },
-            quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
-            scale: { x: s.x, y: s.y, z: s.z },
-            rotation: { y: model.rotation.y }
-          }
-        };
-      } else {
-        // Fallback: save absolute transform
-        pinData = {
-          position: { x: model.position.x, y: model.position.y, z: model.position.z },
-          quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
-          scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z },
+      // Save relative to marker only (anchor-centric)
+      const modelMatrix = new THREE.Matrix4().compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
+      const invMarker = new THREE.Matrix4().copy(markerPoseMatrix).invert();
+      const relMatrix = new THREE.Matrix4().multiplyMatrices(invMarker, modelMatrix);
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const s = new THREE.Vector3();
+      relMatrix.decompose(p, q, s);
+      const pinData = {
+        ref: { type: 'image', id: trackedImageId, width: trackedImageWidth },
+        relative: {
+          position: { x: p.x, y: p.y, z: p.z },
+          quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
+          scale: { x: s.x, y: s.y, z: s.z },
           rotation: { y: model.rotation.y }
-        };
-      }
+        }
+      };
 
       const pinDataString = JSON.stringify(pinData);
       // Base64-URL بدون padding لتقليل طول المفتاح
