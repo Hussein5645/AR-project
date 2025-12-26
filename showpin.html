@@ -137,20 +137,21 @@
           throw new Error('No model found');
         }
 
-        // Find the file with pin data (contains underscore after prefix)
+        // Find the file with pin data (contains _PINNED_ identifier)
         let modelFile = null;
         let pinDataEncoded = null;
 
         for (const item of listResult.Contents) {
           const key = item.Key;
-          if (key.startsWith(prefix)) {
-            const parts = key.split('_');
+          if (key.startsWith(prefix) && key.includes('_PINNED_')) {
+            // Has pin data with PINNED identifier
+            const parts = key.split('_PINNED_');
             if (parts.length > 1) {
-              // Has pin data
-              const fileNameWithExt = parts[1];
-              const dotIndex = fileNameWithExt.lastIndexOf('.');
-              if (dotIndex > 0) {
-                pinDataEncoded = fileNameWithExt.substring(0, dotIndex);
+              const afterPinned = parts[1];
+              // Extract encoded data (everything before the last underscore and filename)
+              const matches = afterPinned.match(/^([^_]+)_/);
+              if (matches) {
+                pinDataEncoded = matches[1];
                 modelFile = key;
                 break;
               }

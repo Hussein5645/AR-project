@@ -117,6 +117,9 @@
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
         statusLoading: 'جار تحميل النموذج...',
         statusError: 'خطأ: يجب تحميل نموذج من الصفحة الرئيسية أولاً',
+        statusHasPinData: 'هذا النموذج يحتوي على بيانات تثبيت محفوظة',
+        statusNoPinData: 'لم يتم تثبيت هذا النموذج بعد - ابدأ AR لإضافة بيانات التثبيت',
+        confirmOverwrite: 'هذا النموذج يحتوي على بيانات تثبيت. هل تريد الكتابة فوقها؟\n\nاختر:\n- موافق: كتابة بيانات جديدة\n- إلغاء: عرض البيانات الحالية في showpin.html',
         loading: 'جار التحميل...',
         arOverlay: 'النموذج مثبت! احفظ الموقع؟',
         savePinAWS: 'حفظ بيانات التثبيت في AWS',
@@ -136,6 +139,9 @@
         statusLoaded: 'Model loaded. Tap Start AR.',
         statusLoading: 'Loading model...',
         statusError: 'Error: Please load a model from home page first',
+        statusHasPinData: 'This model has saved pin data',
+        statusNoPinData: 'Model not pinned yet - Start AR to add pin data',
+        confirmOverwrite: 'This model has pin data. Do you want to overwrite it?\n\nChoose:\n- OK: Create new pin data\n- Cancel: View current data in showpin.html',
         loading: 'Loading content...',
         arOverlay: 'Model pinned! Save location?',
         savePinAWS: 'Save Pin Data to AWS',
@@ -253,6 +259,9 @@
     let viewerSpace = null;
     let hitTestSource = null;
     let currentHitPose = null;
+    let hasPinData = false;
+    let originalFileName = '';
+    let existingPinData = null;
 
     const loader = new GLTFLoader();
 
@@ -274,6 +283,33 @@
           
           const key = data.Contents[0].Key;
           const ext = key.split('.').pop().toLowerCase();
+          
+          // Check if model has pin data
+          if (key.includes('_PINNED_')) {
+            hasPinData = true;
+            // Extract pin data and original filename
+            const parts = key.split('_PINNED_');
+            if (parts.length > 1) {
+              const afterPinned = parts[1];
+              const matches = afterPinned.match(/^([^_]+)_(.+)$/);
+              if (matches) {
+                const encodedData = matches[1];
+                originalFileName = matches[2];
+                try {
+                  existingPinData = JSON.parse(atob(encodedData));
+                } catch (e) {
+                  console.error('Failed to decode existing pin data:', e);
+                }
+              }
+            }
+          } else {
+            hasPinData = false;
+            // Extract original filename (remove 10-char prefix)
+            originalFileName = key.substring(10); // Remove prefix (10 chars)
+            if (originalFileName.startsWith('_')) {
+              originalFileName = originalFileName.substring(1);
+            }
+          }
           
           if (ext !== 'glb' && ext !== 'gltf') {
             reject(new Error('Unsupported file type. Use glb/gltf'));
@@ -342,8 +378,24 @@
       status.textContent = textContent[document.documentElement.lang].statusLoading;
       try {
         await loadModelByPrefix(urlModelKey);
-        status.textContent = textContent[document.documentElement.lang].statusLoaded;
-        status.style.color = '#0f0';
+        const currentLang = document.documentElement.lang;
+        
+        if (hasPinData) {
+          status.textContent = textContent[currentLang].statusHasPinData;
+          status.style.color = '#ffc107';
+          
+          // Ask user if they want to overwrite or view
+          const userWantsOverwrite = confirm(textContent[currentLang].confirmOverwrite);
+          if (!userWantsOverwrite) {
+            // Redirect to showpin.html
+            window.location.href = `showpin.html?model=${urlModelKey}`;
+            return;
+          }
+        } else {
+          status.textContent = textContent[currentLang].statusNoPinData;
+          status.style.color = '#0f0';
+        }
+        
         startARBtn.disabled = false;
       } catch (e) {
         console.error(e);
@@ -495,8 +547,10 @@
 
       const pinDataString = JSON.stringify(pinData);
       const encodedPinData = btoa(pinDataString);
-      const fileExt = currentModelKey.split('.').pop();
-      const newKey = `${modelKey}_${encodedPinData}.${fileExt}`;
+      
+      // Create new key with PINNED identifier and preserve original filename
+      // Format: {prefix}_PINNED_{encodedData}_{originalFileName}
+      const newKey = `${modelKey}_PINNED_${encodedPinData}_${originalFileName}`;
 
       try {
         const currentLang = document.documentElement.lang;
