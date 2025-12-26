@@ -313,7 +313,7 @@
                 loader.load(fileUrl, (gltf) => {
                   model = gltf.scene;
                   model.visible = false;
-                  model.scale.setScalar(parseFloat(scaleInput.value));
+                  model.scale.setScalar(1.0);
                   scene.add(model);
                   modelKey = prefixVal;
                   currentModelKey = key;
@@ -444,8 +444,6 @@
       const frame = session?.requestAnimationFrame ? null : null; // placeholder; anchors handled via result.createAnchor when available
       // Some runtimes expose createAnchor on hit test result; keep best-effort approach
       // We still keep the transform in our own scene for persistence in this session.
-
-      enablePlacementActions();
     }
 
     startARBtn.addEventListener('click', startAR);
