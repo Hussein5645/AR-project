@@ -166,6 +166,7 @@
       ar: {
         title: 'تثبيت النموذج في الواقع المعزز',
         startAR: 'بدء AR (WebXR)',
+        statusAR: 'يتم بدء جلسة الواقع المعزز... ',
         statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
         statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
         statusLoading: 'جار تحميل النموذج...',
@@ -198,6 +199,7 @@
       en: {
         title: 'Pin the Model in AR',
         startAR: 'Start AR (WebXR)',
+        statusAR: 'Starting AR session... ',
         statusReady: 'Ready. Requires Chrome on Android with WebXR.',
         statusLoaded: 'Model loaded. Tap Start AR.',
         statusLoading: 'Loading model...',
@@ -264,6 +266,7 @@
     const xrOverlay = document.getElementById('xr-overlay');
     const xrControls = document.getElementById('xr-controls');
     const xrSurfaceIndicator = document.getElementById('xr-surface-indicator');
+    const surfaceTextEl = document.getElementById('surface-text');
     const xrScaleInput = document.getElementById('xr-scale');
     const xrScaleVal = document.getElementById('xr-scale-val');
     const xrRotateInput = document.getElementById('xr-rotate');
@@ -359,6 +362,8 @@
     // Preview canvas setup
     const previewCanvas = document.getElementById('preview-canvas');
     const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
+    // Ensure correct color space for materials/textures
+    previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
     previewRenderer.setSize(window.innerWidth, window.innerHeight);
     previewRenderer.setPixelRatio(window.devicePixelRatio);
     previewRenderer.shadowMap.enabled = true;
@@ -411,6 +416,8 @@
 
     // Three.js setup for XR
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // Ensure XR renderer uses sRGB color space for correct brightness
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.xr.enabled = true;
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.domElement.classList.add('xr');
@@ -422,13 +429,28 @@
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
     scene.add(hemi);
 
+    const reticleMaterial = new THREE.MeshBasicMaterial({ color: 0xff4444 });
     const reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x00ffaa })
+      reticleMaterial
     );
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
+
+    const surfacePulse = new THREE.Mesh(
+      new THREE.CircleGeometry(0.15, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.25 })
+    );
+    surfacePulse.matrixAutoUpdate = false;
+    surfacePulse.visible = false;
+    scene.add(surfacePulse);
+
+    const hitLineGeom = new THREE.BufferGeometry();
+    hitLineGeom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
+    const hitLine = new THREE.Line(hitLineGeom, new THREE.LineBasicMaterial({ color: 0x00ffaa }));
+    hitLine.visible = false;
+    scene.add(hitLine);
 
     let model = null;
     let modelKey = null;
@@ -784,9 +806,35 @@
         const hitPose = hit.getPose(xrRefSpace);
         currentHitPose = hitPose;
         reticle.visible = true;
+        reticleMaterial.color.setHex(0x00ffaa);
         reticle.matrix.fromArray(hitPose.transform.matrix);
+
+        surfacePulse.visible = true;
+        surfacePulse.matrix.fromArray(hitPose.transform.matrix);
+        const t = time * 0.004;
+        surfacePulse.material.opacity = 0.15 + 0.15 * Math.sin(t);
+
+        const camPos = pose.views[0].transform.position;
+        const m = new THREE.Matrix4().fromArray(hitPose.transform.matrix);
+        const p = new THREE.Vector3();
+        const q = new THREE.Quaternion();
+        const s = new THREE.Vector3();
+        m.decompose(p, q, s);
+        const posAttr = hitLineGeom.getAttribute('position');
+        posAttr.setXYZ(0, camPos.x, camPos.y, camPos.z);
+        posAttr.setXYZ(1, p.x, p.y, p.z);
+        posAttr.needsUpdate = true;
+        hitLine.visible = true;
+
+        const currentLang = document.documentElement.lang;
+        surfaceTextEl.textContent = currentLang === 'ar' ? 'تم العثور على سطح - اضغط لتثبيت' : 'Surface found - tap to pin';
       } else {
         reticle.visible = false;
+        surfacePulse.visible = false;
+        hitLine.visible = false;
+        reticleMaterial.color.setHex(0xff4444);
+        const currentLang = document.documentElement.lang;
+        surfaceTextEl.textContent = currentLang === 'ar' ? 'ابحث عن سطح' : 'Find a surface';
       }
 
       renderer.render(scene, camera);
@@ -846,7 +894,8 @@ function placeModel() {
       if (model) {
         model.visible = false;
         placed = false;
-        xrControls.style.dtruay = 'none';
+        // Hide controls and re-show surface indicator
+        xrControls.style.display = 'none';
         xrSurfaceIndicator.style.display = 'block';
         reticle.visible = false;
       }
