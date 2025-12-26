@@ -59,6 +59,26 @@
     #xr-image-indicator.scanning { box-shadow: 0 0 12px rgba(0,255,170,0.35); border: 1px solid rgba(0,255,170,0.35); }
     #xr-image-indicator.scanning::after { content: ''; display: block; width: 26px; height: 26px; border: 3px solid #00ffaa; border-right-color: transparent; border-radius: 50%; margin: 10px auto 0; animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    /* Anchor scan visual (screen-center dots) */
+    #anchor-scan-visual { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 180px; height: 180px; pointer-events: none; display: none; z-index: 27; }
+    #anchor-scan-visual .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px dashed rgba(0,255,170,0.4); animation: ring-pulse 2s ease-in-out infinite; }
+    #anchor-scan-visual .ring:nth-child(2) { animation-delay: 0.3s; opacity: 0.6; }
+    #anchor-scan-visual .ring:nth-child(3) { animation-delay: 0.6s; opacity: 0.35; }
+    #anchor-scan-visual .dot { position: absolute; width: 10px; height: 10px; background: #00ffaa; border-radius: 50%; top: 50%; left: 50%; transform-origin: -70px 0; animation: orbit 1.2s linear infinite; box-shadow: 0 0 8px rgba(0,255,170,0.6); }
+    #anchor-scan-visual .dot:nth-child(4) { animation-delay: 0.15s; }
+    #anchor-scan-visual .dot:nth-child(5) { animation-delay: 0.3s; }
+    #anchor-scan-visual .dot:nth-child(6) { animation-delay: 0.45s; }
+    #anchor-scan-visual .dot:nth-child(7) { animation-delay: 0.6s; }
+    #anchor-scan-visual .dot:nth-child(8) { animation-delay: 0.75s; }
+    @keyframes ring-pulse {
+      0% { transform: scale(0.75); opacity: 0.5; }
+      50% { transform: scale(1); opacity: 0.35; }
+      100% { transform: scale(1.25); opacity: 0; }
+    }
+    @keyframes orbit {
+      from { transform: rotate(0deg) translateX(70px); }
+      to { transform: rotate(360deg) translateX(70px); }
+    }
     
     /* Modal Dialogs */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
@@ -100,6 +120,16 @@
     <div id="xr-image-indicator">
       <div class="icon">🖼️</div>
       <div id="image-text" class="status">جار البحث عن الصورة المرجعية...</div>
+    </div>
+    <div id="anchor-scan-visual">
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
     </div>
     
     <div id="xr-controls">
@@ -272,6 +302,7 @@
     const surfaceTextEl = document.getElementById('surface-text');
     const xrImageIndicator = document.getElementById('xr-image-indicator');
     const imageTextEl = document.getElementById('image-text');
+    const anchorScanVisual = document.getElementById('anchor-scan-visual');
     const xrScaleInput = document.getElementById('xr-scale');
     const xrScaleVal = document.getElementById('xr-scale-val');
     const xrRotateInput = document.getElementById('xr-rotate');
@@ -831,8 +862,8 @@
           return;
         }
         let sessionInit = {
-          requiredFeatures: ['local-floor'].concat(mode === 'edit' ? ['hit-test'] : []),
-          optionalFeatures: ['anchors', 'dom-overlay', 'image-tracking'],
+          requiredFeatures: ['local-floor', 'image-tracking'].concat(mode === 'edit' ? ['hit-test'] : []),
+          optionalFeatures: ['anchors', 'dom-overlay'],
           domOverlay: { root: xrOverlay }
         };
         if (trackedImageBitmap) {
@@ -880,6 +911,7 @@
         xrSurfaceIndicator.style.display = 'none';
         xrImageIndicator.style.display = (trackedImageBitmap ? 'block' : 'none');
         xrImageIndicator.classList.add('scanning');
+        anchorScanVisual.style.display = trackedImageBitmap ? 'block' : 'none';
         xrControls.style.display = 'none';
         
         xrSession.addEventListener('end', () => {
@@ -888,6 +920,7 @@
           document.getElementById('ar-overlay').style.display = 'none';
           xrControls.style.display = 'none';
           xrSurfaceIndicator.style.display = 'none';
+          anchorScanVisual.style.display = 'none';
           document.getElementById('ui').style.display = 'block';
           document.getElementById('lang-toggle').style.display = 'block';
           
@@ -962,6 +995,7 @@
                 const currentLang = document.documentElement.lang;
                 imageTextEl.textContent = textContent[currentLang].anchorLocked;
                 xrImageIndicator.classList.remove('scanning');
+                anchorScanVisual.style.display = 'none';
                 // If we have relative pin data and not yet placed, place now
                 if (anchorReady && currentMode === 'edit') {
                   xrSurfaceIndicator.style.display = 'block';
@@ -991,10 +1025,16 @@
           const currentLang = document.documentElement.lang;
           imageTextEl.textContent = textContent[currentLang].anchorScan;
           xrImageIndicator.classList.add('scanning');
+          anchorScanVisual.style.display = trackedImageBitmap ? 'block' : 'none';
           xrSurfaceIndicator.style.display = 'none';
           reticle.visible = false;
           surfacePulse.visible = false;
           hitLine.visible = false;
+          xrControls.style.display = 'none';
+          if (model) {
+            model.visible = false;
+            placed = false;
+          }
         }
       }
       if (hitTestSource && pose && anchorReady) {
@@ -1038,6 +1078,7 @@
         reticle.visible = false;
         surfacePulse.visible = false;
         hitLine.visible = false;
+        xrControls.style.display = 'none';
       }
       renderer.render(scene, camera);
     }
