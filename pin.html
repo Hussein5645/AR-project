@@ -943,13 +943,18 @@
 
       const CompilerClass = await ensureMindARCompiler();
       const compiler = new CompilerClass();
-      // Try root then icon/
-      try {
-        await compiler.addImage(trackedImageId);
-      } catch (e) {
-        await compiler.addImage('icon/' + trackedImageId);
+      // Ensure the reference image is available as an ImageBitmap
+      if (!trackedImageBitmap) {
+        const loaded = await loadTrackedImage();
+        if (!loaded || !trackedImageBitmap) {
+          throw new Error('Failed to load reference image for MindAR compiler');
+        }
       }
-      mindTargetBuffer = compiler.compile();
+
+      // Compile the in-memory bitmap with the runtime compiler API
+      await compiler.compileImageTargets([trackedImageBitmap], () => {});
+      const compiledData = compiler.exportData();
+      mindTargetBuffer = URL.createObjectURL(new Blob([compiledData], { type: 'application/octet-stream' }));
       return mindTargetBuffer;
     }
 
