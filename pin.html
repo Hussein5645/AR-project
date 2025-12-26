@@ -342,7 +342,8 @@
 
     function hasPinnedAfterPrefix(key, prefixLen = 10) {
       const idx = key.toLowerCase().indexOf('_pinned_');
-      return idx >= (prefixLen + 1); // +1 لحرف underscore بعد المعرّف
+      // يجب أن تبدأ "_pinned_" مباشرة بعد أول 10 محارف (أي عند الفهرس 10)
+      return idx >= prefixLen;
     }
 
     function getQueryParam(name) {
