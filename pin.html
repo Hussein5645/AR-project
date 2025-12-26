@@ -44,8 +44,31 @@
     #xr-controls .btn-secondary { background: #6c757d; color: #fff; }
     #xr-controls .btn-secondary:hover { background: #5a6268; }
     #xr-controls .status-text { color: #ffc107; font-size: 13px; text-align: center; margin: 10px 0; }
-    #xr-surface-indicator { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffaa; font-size: 18px; text-align: center; display: none; pointer-events: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
+    #xr-surface-indicator { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffaa; font-size: 18px; text-align: center; display: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
     #xr-surface-indicator .icon { font-size: 48px; margin-bottom: 10px; }
+    #xr-pin-btn { padding: 16px 32px; border: none; border-radius: 50px; background: #00ffaa; color: #000; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(0,255,170,0.4); transition: all 0.3s; }
+    #xr-pin-btn:hover { background: #00dd88; transform: scale(1.05); box-shadow: 0 6px 20px rgba(0,255,170,0.6); }
+    #xr-pin-btn:active { transform: scale(0.95); }
+    
+    /* Modal Dialogs */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
+    .modal-overlay.show { display: flex; }
+    .modal-content { background: #1e1e1e; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+    body[lang="ar"] .modal-content { direction: rtl; text-align: right; }
+    body[lang="en"] .modal-content { direction: ltr; text-align: left; }
+    .modal-content h3 { margin: 0 0 15px 0; color: #fff; font-size: 20px; }
+    .modal-content p { margin: 0 0 25px 0; color: #bbb; font-size: 15px; line-height: 1.6; }
+    .modal-content .icon-warning { font-size: 48px; text-align: center; margin-bottom: 15px; }
+    .modal-buttons { display: flex; gap: 10px; flex-direction: column; }
+    .modal-buttons button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: all 0.2s; }
+    .modal-buttons .btn-primary { background: #28a745; color: #fff; }
+    .modal-buttons .btn-primary:hover { background: #218838; transform: translateY(-2px); }
+    .modal-buttons .btn-info { background: #17a2b8; color: #fff; }
+    .modal-buttons .btn-info:hover { background: #138496; transform: translateY(-2px); }
+    .modal-buttons .btn-danger { background: #dc3545; color: #fff; }
+    .modal-buttons .btn-danger:hover { background: #c82333; }
+    .modal-buttons .btn-secondary { background: #6c757d; color: #fff; }
+    .modal-buttons .btn-secondary:hover { background: #5a6268; }
   </style>
 </head>
 <body lang="ar">
@@ -60,7 +83,8 @@
   <div id="xr-overlay">
     <div id="xr-surface-indicator">
       <div class="icon">⊕</div>
-      <div id="surface-text">ابحث عن سطح واضغط للتثبيت</div>
+      <div id="surface-text">ابحث عن سطح</div>
+      <button id="xr-pin-btn">📍 تثبيت الموقع</button>
     </div>
     
     <div id="xr-controls">
@@ -93,6 +117,30 @@
     </div>
 
     <div id="status">جار تحميل النموذج...</div>
+  </div>
+
+  <!-- Modal for Pin Data Decision -->
+  <div id="pin-data-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="icon-warning">⚠️</div>
+      <h3 id="modal-title">بيانات تثبيت موجودة</h3>
+      <p id="modal-message">هذا النموذج يحتوي على بيانات تثبيت محفوظة. ماذا تريد أن تفعل؟</p>
+      <div class="modal-buttons">
+        <button id="modal-view-pin" class="btn-info">👁️ عرض بيانات التثبيت الحالية</button>
+        <button id="modal-overwrite" class="btn-primary">✏️ إنشاء بيانات تثبيت جديدة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Errors/Alerts -->
+  <div id="alert-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h3 id="alert-title">تنبيه</h3>
+      <p id="alert-message"></p>
+      <div class="modal-buttons">
+        <button id="alert-ok" class="btn-primary">حسناً</button>
+      </div>
+    </div>
   </div>
 
   <script type="importmap">
@@ -130,7 +178,17 @@
         xrStatus: 'النموذج مثبت - اضبط الإعدادات',
         xrSaveAWS: 'حفظ في AWS',
         xrReset: 'إعادة التثبيت',
-        surfaceText: 'ابحث عن سطح واضغط للتثبيت'
+        surfaceText: 'ابحث عن سطح',
+        xrPinBtn: '📍 تثبيت الموقع',
+        modalPinTitle: 'بيانات تثبيت موجودة',
+        modalPinMessage: 'هذا النموذج يحتوي على بيانات تثبيت محفوظة. ماذا تريد أن تفعل؟',
+        modalViewPin: '👁️ عرض بيانات التثبيت الحالية',
+        modalOverwrite: '✏️ إنشاء بيانات تثبيت جديدة',
+        alertTitle: 'تنبيه',
+        alertOk: 'حسناً',
+        webxrNotSupported: 'WebXR غير مدعوم على هذا الجهاز/المتصفح.',
+        arSessionFailed: 'فشل بدء جلسة AR',
+        noPinDataToSave: 'لا توجد بيانات تثبيت لحفظها'
       },
       en: {
         title: 'Pin the Model in AR',
@@ -152,7 +210,17 @@
         xrStatus: 'Model placed - adjust settings',
         xrSaveAWS: 'Save to AWS',
         xrReset: 'Reposition',
-        surfaceText: 'Find a surface and tap to place'
+        surfaceText: 'Find a surface',
+        xrPinBtn: '📍 Pin Location',
+        modalPinTitle: 'Pin Data Found',
+        modalPinMessage: 'This model has saved pin data. What would you like to do?',
+        modalViewPin: '👁️ View Current Pin Data',
+        modalOverwrite: '✏️ Create New Pin Data',
+        alertTitle: 'Notice',
+        alertOk: 'OK',
+        webxrNotSupported: 'WebXR is not supported on this device/browser.',
+        arSessionFailed: 'Failed to start AR session',
+        noPinDataToSave: 'No pin data to save'
       }
     };
 
@@ -172,7 +240,14 @@
       document.getElementById('xr-status').textContent = t.xrStatus;
       document.getElementById('xr-save-aws').textContent = t.xrSaveAWS;
       document.getElementById('xr-reset').textContent = t.xrReset;
+      document.getElementById('xr-pin-btn').textContent = t.xrPinBtn;
       document.getElementById('surface-text').textContent = t.surfaceText;
+      document.getElementById('modal-title').textContent = t.modalPinTitle;
+      document.getElementById('modal-message').textContent = t.modalPinMessage;
+      document.getElementById('modal-view-pin').innerHTML = t.modalViewPin;
+      document.getElementById('modal-overwrite').innerHTML = t.modalOverwrite;
+      document.getElementById('alert-title').textContent = t.alertTitle;
+      document.getElementById('alert-ok').textContent = t.alertOk;
     }
 
     const langToggle = document.getElementById('lang-toggle');
@@ -189,7 +264,54 @@
     const xrRotateInput = document.getElementById('xr-rotate');
     const xrRotateVal = document.getElementById('xr-rotate-val');
     const xrSaveAWSBtn = document.getElementById('xr-save-aws');
+    const xrPinBtn = document.getElementById('xr-pin-btn');
     const xrResetBtn = document.getElementById('xr-reset');
+    
+    const pinDataModal = document.getElementById('pin-data-modal');
+    const modalViewPinBtn = document.getElementById('modal-view-pin');
+    const modalOverwriteBtn = document.getElementById('modal-overwrite');
+    const alertModal = document.getElementById('alert-modal');
+    const alertMessage = document.getElementById('alert-message');
+    const alertOkBtn = document.getElementById('alert-ok');
+
+    // Modal helper functions
+    function showPinDataModal() {
+      return new Promise((resolve) => {
+        pinDataModal.classList.add('show');
+        
+        const viewHandler = () => {
+          pinDataModal.classList.remove('show');
+          modalViewPinBtn.removeEventListener('click', viewHandler);
+          modalOverwriteBtn.removeEventListener('click', overwriteHandler);
+          resolve('view');
+        };
+        
+        const overwriteHandler = () => {
+          pinDataModal.classList.remove('show');
+          modalViewPinBtn.removeEventListener('click', viewHandler);
+          modalOverwriteBtn.removeEventListener('click', overwriteHandler);
+          resolve('overwrite');
+        };
+        
+        modalViewPinBtn.addEventListener('click', viewHandler);
+        modalOverwriteBtn.addEventListener('click', overwriteHandler);
+      });
+    }
+    
+    function showAlert(message) {
+      return new Promise((resolve) => {
+        alertMessage.textContent = message;
+        alertModal.classList.add('show');
+        
+        const okHandler = () => {
+          alertModal.classList.remove('show');
+          alertOkBtn.removeEventListener('click', okHandler);
+          resolve();
+        };
+        
+        alertOkBtn.addEventListener('click', okHandler);
+      });
+    }
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     let loadedBytes = 0;
@@ -384,13 +506,14 @@
           status.textContent = textContent[currentLang].statusHasPinData;
           status.style.color = '#ffc107';
           
-          // Ask user if they want to overwrite or view
-          const userWantsOverwrite = confirm(textContent[currentLang].confirmOverwrite);
-          if (!userWantsOverwrite) {
+          // Show modal instead of confirm
+          const decision = await showPinDataModal();
+          if (decision === 'view') {
             // Redirect to showpin.html
             window.location.href = `showpin.html?model=${urlModelKey}`;
             return;
           }
+          // If 'overwrite', continue to allow AR session
         } else {
           status.textContent = textContent[currentLang].statusNoPinData;
           status.style.color = '#0f0';
@@ -407,7 +530,8 @@
 
     async function startAR() {
       if (!navigator.xr) {
-        alert('WebXR غير مدعوم على هذا الجهاز/المتصفح.');
+        const currentLang = document.documentElement.lang;
+        await showAlert(textContent[currentLang].webxrNotSupported);
         return;
       }
       try {
@@ -436,7 +560,7 @@
           document.getElementById('lang-toggle').style.display = 'block';
           status.textContent = textContent[document.documentElement.lang].statusReady;
         });
-
+// Remove controller select event - we'll use button instead
         const controller = renderer.xr.getController(0);
         controller.addEventListener('select', onSelect);
         scene.add(controller);
@@ -445,7 +569,8 @@
         renderer.setAnimationLoop(onXRFrame);
       } catch (e) {
         console.error(e);
-        alert('فشل بدء جلسة AR: ' + e.message);
+        const currentLang = document.documentElement.lang;
+        await showAlert(`${textContent[currentLang].arSessionFailed}: ${e.message}`);
       }
     }
 
@@ -468,8 +593,7 @@
 
       renderer.render(scene, camera);
     }
-
-    async function onSelect() {
+function placeModel() {
       if (!currentHitPose || !model) return;
       // Place model at reticle
       const m = new THREE.Matrix4().fromArray(currentHitPose.transform.matrix);
@@ -499,6 +623,8 @@
     }
 
     startARBtn.addEventListener('click', startAR);
+    xrPinBtn.addEventListener('click', placeModel
+    startARBtn.addEventListener('click', startAR);
 
     // XR Scale control
     xrScaleInput.addEventListener('input', (e) => {
@@ -523,7 +649,7 @@
       if (model) {
         model.visible = false;
         placed = false;
-        xrControls.style.display = 'none';
+        xrControls.style.dtruay = 'none';
         xrSurfaceIndicator.style.display = 'block';
         reticle.visible = false;
       }
@@ -533,8 +659,7 @@
     xrSaveAWSBtn.addEventListener('click', async () => {
       if (!model || !placed || !modelKey || !currentModelKey) {
         const currentLang = document.documentElement.lang;
-        const msg = currentLang === 'ar' ? 'لا توجد بيانات تثبيت لحفظها' : 'No pin data to save';
-        alert(msg);
+        await showAlert(textContent[currentLang].noPinDataToSave);
         return;
       }
 
