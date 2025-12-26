@@ -20,9 +20,9 @@
     #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { font-size: 12px; color: #bbb; margin-top: 4px; }
     #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
-    #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
     #preview-canvas.hidden { display: none; }
-    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; }
+    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; z-index: 1; }
     canvas.xr.active { display: block; }
     #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
     #loading-screen.hidden { opacity: 0; pointer-events: none; }
@@ -596,20 +596,43 @@
                   previewScene.add(previewModel);
                   console.log('✓ Model added to preview scene');
                   
+                  // Add wireframe clone for visibility debugging
+                  const wireframeModel = previewModel.clone(true);
+                  wireframeModel.traverse((child) => {
+                    if (child.isMesh) {
+                      child.material = new THREE.MeshBasicMaterial({ 
+                        color: 0xffff00,
+                        wireframe: true,
+                        wireframeLinewidth: 2
+                      });
+                    }
+                  });
+                  previewScene.add(wireframeModel);
+                  console.log('✓ Added wireframe clone');
+                  
                   // Center model in preview
                   const box = new THREE.Box3().setFromObject(previewModel);
                   const center = box.getCenter(new THREE.Vector3());
                   const size = box.getSize(new THREE.Vector3());
                   
-                  // Center the model
+                  // Center both models
                   previewModel.position.x = -center.x;
                   previewModel.position.y = -center.y;
                   previewModel.position.z = -center.z;
+                  
+                  wireframeModel.position.x = -center.x;
+                  wireframeModel.position.y = -center.y;
+                  wireframeModel.position.z = -center.z;
                   
                   // Add a visible box helper to see the bounds
                   const boxHelper = new THREE.BoxHelper(previewModel, 0x00ff00);
                   previewScene.add(boxHelper);
                   console.log('✓ Added box helper for visibility');
+                  
+                  // Add axes helper at origin
+                  const axesHelper = new THREE.AxesHelper(2);
+                  previewScene.add(axesHelper);
+                  console.log('✓ Added axes helper');
                   
                   // Adjust camera based on model size
                   const maxDim = Math.max(size.x, size.y, size.z);
