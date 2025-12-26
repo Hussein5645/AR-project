@@ -492,6 +492,16 @@
     surfacePulse.visible = false;
     scene.add(surfacePulse);
 
+    // Surface highlight plane to make tappable surfaces clearer
+    const surfaceHighlight = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.6, 0.6),
+      new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.12, side: THREE.DoubleSide })
+    );
+    surfaceHighlight.geometry.rotateX(-Math.PI / 2);
+    surfaceHighlight.matrixAutoUpdate = false;
+    surfaceHighlight.visible = false;
+    scene.add(surfaceHighlight);
+
     const hitLineGeom = new THREE.BufferGeometry();
     hitLineGeom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
     const hitLine = new THREE.Line(hitLineGeom, new THREE.LineBasicMaterial({ color: 0x00ffaa }));
@@ -520,6 +530,8 @@
     const trackedImageId = 'sightlogo.png';
     let imageTrackingSupported = false;
     let anchorReady = false;
+
+    const handleXRSelect = () => placeModel();
 
     const loader = new GLTFLoader();
 
@@ -893,14 +905,19 @@
         xrImageIndicator.classList.remove('scanning');
         anchorScanVisual.style.display = 'block';
         xrControls.style.display = 'none';
+        xrSession.addEventListener('select', handleXRSelect);
         
         xrSession.addEventListener('end', () => {
+          if (xrSession) {
+            xrSession.removeEventListener('select', handleXRSelect);
+          }
           xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
           anchorReady = false; markerFound = false; markerPoseMatrix = null; anchorPoseMatrix = null;
           document.getElementById('ar-overlay').style.display = 'none';
           xrControls.style.display = 'none';
           xrSurfaceIndicator.style.display = 'none';
           anchorScanVisual.style.display = 'none';
+          surfaceHighlight.visible = false;
           document.getElementById('ui').style.display = 'block';
           document.getElementById('lang-toggle').style.display = 'block';
           
@@ -974,6 +991,9 @@
           const t = time * 0.004;
           surfacePulse.material.opacity = 0.15 + 0.15 * Math.sin(t);
 
+          surfaceHighlight.visible = true;
+          surfaceHighlight.matrix.fromArray(hitPose.transform.matrix);
+
           const camPos = pose.views[0].transform.position;
           const m = new THREE.Matrix4().fromArray(hitPose.transform.matrix);
           const p = new THREE.Vector3();
@@ -996,6 +1016,7 @@
           reticle.visible = false;
           surfacePulse.visible = false;
           hitLine.visible = false;
+          surfaceHighlight.visible = false;
           reticleMaterial.color.setHex(0xff4444);
           const currentLang = document.documentElement.lang;
           surfaceTextEl.textContent = textContent[currentLang].anchorScan;
@@ -1004,6 +1025,7 @@
         reticle.visible = false;
         surfacePulse.visible = false;
         hitLine.visible = false;
+        surfaceHighlight.visible = false;
       }
       renderer.render(scene, camera);
     }
