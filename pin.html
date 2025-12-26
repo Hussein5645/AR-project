@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pin AR Model (WebXR)</title>
+  <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+  <style>
+    body[lang="ar"] { direction: rtl; }
+    body[lang="en"] { direction: ltr; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #121212; color: #fff; overflow: hidden; }
+    #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; }
+    #ui h2 { margin: 0 0 8px 0; font-size: 18px; }
+    #ui .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    #ui input[type="text"], #ui input[type="range"] { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #2a2a2a; color: #fff; }
+    #ui input[type="text"]::placeholder { color: #bbb; }
+    #ui button { padding: 10px 14px; border: none; border-radius: 6px; background: #007bff; color: #fff; font-weight: bold; cursor: pointer; }
+    #ui button.secondary { background: #444; }
+    #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #status { font-size: 12px; color: #bbb; margin-top: 4px; }
+    #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; }
+    #qrcode-wrap { margin-top: 8px; display: none; }
+    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body lang="ar">
+  <button id="lang-toggle">English</button>
+
+  <div id="ui">
+    <h2 id="title">تثبيت النموذج في الواقع المعزز</h2>
+
+    <div class="row">
+      <input id="model-prefix" type="text" maxlength="10" placeholder="أدخل مفتاح النموذج (10 أحرف)" />
+      <button id="load-btn">تحميل</button>
+    </div>
+
+    <div class="row">
+      <button id="start-ar" disabled>بدء AR (WebXR)</button>
+      <button id="reset" class="secondary" disabled>إعادة الضبط</button>
+    </div>
+
+    <div class="row">
+      <label id="scale-label" for="scale">الحجم:</label>
+      <input id="scale" type="range" min="0.1" max="5" step="0.01" value="1" disabled />
+      <span id="scale-val">1.00×</span>
+    </div>
+
+    <div class="row">
+      <button id="copy-placement" class="secondary" disabled>نسخ بيانات التثبيت</button>
+      <button id="save-placement" class="secondary" disabled>حفظ البيانات محلياً</button>
+    </div>
+
+    <div id="status">جاهز. يتطلب Chrome على Android لدعم WebXR.</div>
+    <div id="qrcode-wrap">
+      <canvas id="qrcode"></canvas>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/loaders/GLTFLoader.js';
+
+    // Language content
+    const textContent = {
+      ar: {
+        title: 'تثبيت النموذج في الواقع المعزز',
+        prefixPH: 'أدخل مفتاح النموذج (10 أحرف)',
+        load: 'تحميل', startAR: 'بدء AR (WebXR)', reset: 'إعادة الضبط',
+        scale: 'الحجم:', copy: 'نسخ بيانات التثبيت', save: 'حفظ البيانات محلياً',
+        statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
+        statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
+        statusAR: 'تحريك الهاتف بحثاً عن سطح. اضغط للتثبيت.',
+        toggleLang: 'English'
+      },
+      en: {
+        title: 'Pin the Model in AR',
+        prefixPH: 'Enter 10-char model key',
+        load: 'Load', startAR: 'Start AR (WebXR)', reset: 'Reset',
+        scale: 'Scale:', copy: 'Copy Placement Data', save: 'Save Locally',
+        statusReady: 'Ready. Requires Chrome on Android with WebXR.',
+        statusLoaded: 'Model loaded. Tap Start AR.',
+        statusAR: 'Move phone to find a surface. Tap to pin.',
+        toggleLang: 'Arabic'
+      }
+    };
+
+    function setLang(lang) {
+      document.documentElement.lang = lang;
+      document.body.setAttribute('lang', lang);
+      const t = textContent[lang];
+      title.textContent = t.title;
+      prefix.placeholder = t.prefixPH;
+      loadBtn.textContent = t.load;
+      startARBtn.textContent = t.startAR;
+      resetBtn.textContent = t.reset;
+      scaleLabel.textContent = t.scale;
+      copyBtn.textContent = t.copy;
+      saveBtn.textContent = t.save;
+      status.textContent = t.statusReady;
+      langToggle.textContent = t.toggleLang;
+    }
+
+    const langToggle = document.getElementById('lang-toggle');
+    const title = document.getElementById('title');
+    const prefix = document.getElementById('model-prefix');
+    const loadBtn = document.getElementById('load-btn');
+    const startARBtn = document.getElementById('start-ar');
+    const resetBtn = document.getElementById('reset');
+    const scaleInput = document.getElementById('scale');
+    const scaleVal = document.getElementById('scale-val');
+    const scaleLabel = document.getElementById('scale-label');
+    const copyBtn = document.getElementById('copy-placement');
+    const saveBtn = document.getElementById('save-placement');
+    const status = document.getElementById('status');
+    const qrWrap = document.getElementById('qrcode-wrap');
+    const qrCanvas = document.getElementById('qrcode');
+
+    // Toggle language
+    langToggle.addEventListener('click', () => {
+      const newLang = (document.documentElement.lang === 'ar') ? 'en' : 'ar';
+      setLang(newLang);
+    });
+
+    // AWS S3 setup
+    AWS.config.update({
+      accessKeyId: 'AKIA276CMBVE77VJTOQC',
+      secretAccessKey: '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',
+      region: 'eu-north-1',
+    });
+    const s3 = new AWS.S3();
+    const bucketName = '3dmodle';
+
+    function getQueryParam(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
+    }
+
+    function presignUrl(key) {
+      try {
+        return s3.getSignedUrl('getObject', { Bucket: bucketName, Key: key, Expires: 3600 });
+      } catch (e) {
+        console.error('Presign failed:', e);
+        return null;
+      }
+    }
+
+    // Three.js setup
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.xr.enabled = true;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.domElement.classList.add('xr');
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+    scene.add(hemi);
+
+    const reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x00ffaa })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    let model = null;
+    let modelKey = null;
+    let placed = false;
+    let xrSession = null;
+    let xrRefSpace = null;
+    let viewerSpace = null;
+    let hitTestSource = null;
+    let currentHitPose = null;
+
+    const loader = new GLTFLoader();
+
+    function loadModelByPrefix(prefixVal) {
+      return new Promise((resolve, reject) => {
+        s3.listObjectsV2({ Bucket: bucketName, Prefix: prefixVal }, (err, data) => {
+          if (err) { reject(err); return; }
+          if (!data || !data.Contents || data.Contents.length === 0) {
+            reject(new Error('No object found for prefix'));
+            return;
+          }
+          const key = data.Contents[0].Key;
+          const ext = key.split('.').pop().toLowerCase();
+          if (ext !== 'glb' && ext !== 'gltf') {
+            reject(new Error('Unsupported file type. Use glb/gltf'));
+            return;
+          }
+          const url = presignUrl(key);
+          if (!url) { reject(new Error('Failed to presign URL')); return; }
+          loader.load(url, (gltf) => {
+            model = gltf.scene;
+            model.visible = false;
+            model.scale.setScalar(parseFloat(scaleInput.value));
+            scene.add(model);
+            modelKey = prefixVal;
+            resolve({ key, url });
+          }, undefined, (e) => reject(e));
+        });
+      });
+    }
+
+    function updateScale(val) {
+      const s = parseFloat(val);
+      scaleVal.textContent = `${s.toFixed(2)}×`;
+      if (model) model.scale.setScalar(s);
+    }
+
+    scaleInput.addEventListener('input', (e) => updateScale(e.target.value));
+
+    loadBtn.addEventListener('click', async () => {
+      const v = prefix.value.trim();
+      if (v.length !== 10) { alert('يجب إدخال 10 أحرف.'); return; }
+      status.textContent = textContent[document.documentElement.lang].statusReady;
+      try {
+        await loadModelByPrefix(v);
+        status.textContent = textContent[document.documentElement.lang].statusLoaded;
+        startARBtn.disabled = false;
+        scaleInput.disabled = false;
+      } catch (e) {
+        console.error(e);
+        alert('تعذر تحميل النموذج: ' + e.message);
+      }
+    });
+
+    async function startAR() {
+      if (!navigator.xr) {
+        alert('WebXR غير مدعوم على هذا الجهاز/المتصفح.');
+        return;
+      }
+      try {
+        xrSession = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test', 'local-floor'],
+          optionalFeatures: ['anchors']
+        });
+        renderer.xr.setSession(xrSession);
+        xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+        viewerSpace = await xrSession.requestReferenceSpace('viewer');
+        const hitSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+        hitTestSource = hitSource;
+
+        xrSession.addEventListener('end', () => {
+          xrSession = null; hitTestSource = null; placed = false; reticle.visible = false;
+          status.textContent = textContent[document.documentElement.lang].statusReady;
+        });
+
+        const controller = renderer.xr.getController(0);
+        controller.addEventListener('select', onSelect);
+        scene.add(controller);
+
+        status.textContent = textContent[document.documentElement.lang].statusAR;
+        renderer.setAnimationLoop(onXRFrame);
+      } catch (e) {
+        console.error(e);
+        alert('فشل بدء جلسة AR: ' + e.message);
+      }
+    }
+
+    function onXRFrame(time, frame) {
+      const session = renderer.xr.getSession();
+      if (!session || !hitTestSource) return;
+      const pose = frame.getViewerPose(xrRefSpace);
+      if (!pose) return;
+
+      const results = frame.getHitTestResults(hitTestSource);
+      if (results.length > 0) {
+        const hit = results[0];
+        const hitPose = hit.getPose(xrRefSpace);
+        currentHitPose = hitPose;
+        reticle.visible = true;
+        reticle.matrix.fromArray(hitPose.transform.matrix);
+      } else {
+        reticle.visible = false;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    async function onSelect() {
+      if (!currentHitPose || !model) return;
+      // Place model at reticle
+      const m = new THREE.Matrix4().fromArray(currentHitPose.transform.matrix);
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      m.decompose(pos, quat, scl);
+
+      model.position.copy(pos);
+      model.quaternion.copy(quat);
+      model.visible = true;
+      placed = true;
+
+      // Try anchors API if available
+      const session = renderer.xr.getSession();
+      const frame = session?.requestAnimationFrame ? null : null; // placeholder; anchors handled via result.createAnchor when available
+      // Some runtimes expose createAnchor on hit test result; keep best-effort approach
+      // We still keep the transform in our own scene for persistence in this session.
+
+      enablePlacementActions();
+    }
+
+    function enablePlacementActions() {
+      copyBtn.disabled = !placed;
+      saveBtn.disabled = !placed;
+      resetBtn.disabled = !placed;
+    }
+
+    startARBtn.addEventListener('click', startAR);
+
+    resetBtn.addEventListener('click', () => {
+      placed = false; model && (model.visible = false); reticle.visible = false;
+      copyBtn.disabled = true; saveBtn.disabled = true; resetBtn.disabled = true;
+    });
+
+    copyBtn.addEventListener('click', () => {
+      if (!model || !placed) return;
+      const data = {
+        key: modelKey,
+        position: { x: model.position.x, y: model.position.y, z: model.position.z },
+        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
+        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
+      };
+      const text = JSON.stringify(data);
+      navigator.clipboard?.writeText(text).then(() => {
+        alert('تم نسخ بيانات التثبيت إلى الحافظة');
+        // Generate QR code for convenience
+        qrWrap.style.display = 'block';
+        QRCode.toCanvas(qrCanvas, text, (err) => { if (err) console.error(err); });
+      }).catch(() => alert(text));
+    });
+
+    saveBtn.addEventListener('click', () => {
+      if (!model || !placed || !modelKey) return;
+      const data = {
+        key: modelKey,
+        position: { x: model.position.x, y: model.position.y, z: model.position.z },
+        quaternion: { x: model.quaternion.x, y: model.quaternion.y, z: model.quaternion.z, w: model.quaternion.w },
+        scale: { x: model.scale.x, y: model.scale.y, z: model.scale.z }
+      };
+      try {
+        localStorage.setItem(`placement:${modelKey}`, JSON.stringify(data));
+        alert('تم حفظ بيانات التثبيت محلياً');
+      } catch (e) {
+        console.error(e);
+        alert('تعذر الحفظ محلياً');
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+
+    // Support auto-load via URL ?model=xxxx
+    const urlModelKey = getQueryParam('model');
+    if (urlModelKey && urlModelKey.length === 10) {
+      prefix.value = urlModelKey;
+      loadBtn.click();
+    }
+
+    // Initialize Arabic as default
+    setLang('ar');
+  </script>
+</body>
+</html>
