@@ -159,7 +159,6 @@
       <p id="xr-status" class="status-text">النموذج مثبت - اضبط الإعدادات</p>
       
       <button id="xr-save-aws" class="btn-primary">حفظ في AWS</button>
-      <button id="xr-reset" class="btn-secondary">إعادة التثبيت</button>
     </div>
   </div>
 
@@ -296,7 +295,6 @@
       document.getElementById('xr-rotate-label').textContent = t.xrRotateLabel;
       document.getElementById('xr-status').textContent = t.xrStatus;
       document.getElementById('xr-save-aws').textContent = t.xrSaveAWS;
-      document.getElementById('xr-reset').textContent = t.xrReset;
       document.getElementById('xr-pin-btn').textContent = t.xrPinBtn;
       document.getElementById('surface-text').textContent = t.surfaceText;
       document.getElementById('alert-title').textContent = t.alertTitle;
@@ -323,7 +321,6 @@
     const xrRotateVal = document.getElementById('xr-rotate-val');
     const xrSaveAWSBtn = document.getElementById('xr-save-aws');
     const xrPinBtn = document.getElementById('xr-pin-btn');
-    const xrResetBtn = document.getElementById('xr-reset');
     
     const alertModal = document.getElementById('alert-modal');
     const alertMessage = document.getElementById('alert-message');
@@ -919,7 +916,6 @@
         anchorScanVisual.style.display = 'block';
         xrControls.style.display = 'none';
         xrSaveAWSBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
-        xrResetBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
         xrScaleInput.disabled = currentMode !== 'edit';
         xrRotateInput.disabled = currentMode !== 'edit';
         xrPinBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
@@ -1036,55 +1032,47 @@
         anchorScanVisual.style.display = 'none';
         surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
 
-        if (currentMode === 'show') {
-          anchorLocked = true;
-          if (model) {
-            if (model.parent !== mindarAnchor.group) {
-              if (model.parent) {
-                model.parent.remove(model);
-              }
-              mindarAnchor.group.add(model);
-            }
-            if (existingPinData && existingPinData.relative) {
-              applyPinDataRelativeToAnchor(existingPinData);
-            } else if (existingPinData) {
-              applyPinDataToModel(existingPinData);
-            } else {
-              // Safe default pose if no pin data exists
-              model.position.set(0, 0, 0);
-              model.quaternion.identity();
-              model.scale.setScalar(1);
-            }
-            model.visible = true;
-            placed = true;
-            xrControls.style.display = 'none';
+        // For both show and edit modes: make model visible and place it at the anchor's world pose
+        if (model) {
+          // Ensure model is not parented to the anchor group so it can be moved independently
+          if (model.parent && model.parent !== mindarScene) {
+            model.parent.remove(model);
           }
-          return;
+          if (model.parent !== mindarScene) {
+            mindarScene.add(model);
+          }
+
+          if (existingPinData && existingPinData.relative) {
+            // Apply saved relative data (will use anchorPoseMatrix internally)
+            applyPinDataRelativeToAnchor(existingPinData);
+          } else if (existingPinData) {
+            // Apply absolute pin data
+            applyPinDataToModel(existingPinData);
+          } else {
+            // Place model exactly at the detected anchor world transform
+            const p = new THREE.Vector3();
+            const q = new THREE.Quaternion();
+            const s = new THREE.Vector3();
+            anchorPoseMatrix.decompose(p, q, s);
+            model.position.copy(p);
+            model.quaternion.copy(q);
+            model.scale.copy(s);
+          }
+
+          model.visible = true;
+          placed = true;
         }
 
-        // Edit mode: lock anchor on first detection, then allow placement/adjustment
-        if (!anchorLocked) {
+        // Show/hide controls depending on mode; edit mode allows manipulation
+        if (currentMode === 'show') {
+          xrControls.style.display = 'none';
           anchorLocked = true;
-          if (model) {
-            if (model.parent !== mindarAnchor.group) {
-              if (model.parent) {
-                model.parent.remove(model);
-              }
-              mindarAnchor.group.add(model);
-            }
-            if (existingPinData && existingPinData.relative) {
-              applyPinDataRelativeToAnchor(existingPinData);
-            } else if (!existingPinData) {
-              model.position.set(0, 0, 0);
-              model.quaternion.identity();
-              model.scale.setScalar(1);
-            }
-            model.visible = true;
-            placed = true;
-            xrControls.style.display = 'block';
-            xrScaleInput.value = model.scale.x;
-            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
-          }
+          return;
+        } else {
+          xrControls.style.display = 'block';
+          anchorLocked = true;
+          xrScaleInput.value = model.scale.x;
+          xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
         }
       };
       mindarAnchor.onTargetLost = () => {
@@ -1287,34 +1275,7 @@
       }
     });
     
-    // XR Reset button
-    xrResetBtn.addEventListener('click', () => {
-      if (model) {
-        model.visible = false;
-        placed = false;
-        markerFound = false;
-        anchorReady = false;
-        anchorLocked = false;
-        awaitingSaveRescan = false;
-        savingInProgress = false;
-        anchorPoseMatrix = null;
-        if (mindarAnchor && mindarAnchor.group) {
-          mindarAnchor.group.remove(model);
-        }
-        // Hide controls and re-show surface indicator
-        xrControls.style.display = currentMode === 'edit' ? 'none' : 'none';
-        xrSurfaceIndicator.style.display = currentMode === 'edit' ? 'block' : 'none';
-        anchorScanVisual.style.display = 'block';
-        if (trackedImageBitmap) {
-          const currentLang = document.documentElement.lang;
-          imageTextEl.textContent = textContent[currentLang].anchorScan;
-          xrImageIndicator.classList.remove('found');
-          xrImageIndicator.classList.add('scanning');
-          xrImageIndicator.style.display = 'block';
-        }
-        reticle.visible = false;
-      }
-    });
+
     
     // XR Save to AWS button
     xrSaveAWSBtn.addEventListener('click', async () => {
