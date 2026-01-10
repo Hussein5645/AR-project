@@ -200,6 +200,7 @@
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { MindARThree } from 'mindar-image-three';
 
@@ -560,6 +561,16 @@
 
     const loader = new GLTFLoader();
     loader.setCrossOrigin('anonymous');
+    // Initialize DRACOLoader for Draco-compressed glTF/glb files
+    try {
+      const dracoLoader = new DRACOLoader();
+      // Default to Google's hosted decoder; replace with local path if needed
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+      loader.setDRACOLoader(dracoLoader);
+      console.log('DRACOLoader initialized');
+    } catch (e) {
+      console.warn('DRACOLoader not available:', e);
+    }
 
     function loadExternalScript(src) {
       return new Promise((resolve, reject) => {
