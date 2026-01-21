@@ -495,13 +495,8 @@
     console.log('Preview animation started');
 
 
-    // Create a dedicated renderer for the XR / MindAR view
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.classList.add('xr');
     document.body.appendChild(renderer.domElement);
 
