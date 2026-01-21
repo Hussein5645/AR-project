@@ -23,6 +23,8 @@
     #status { font-size: 12px; color: #bbb; margin-top: 4px; }
     #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; pointer-events: auto; }
     #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
+    /* allow pointer/touch interactions on preview canvas */
+    #preview-canvas { pointer-events: auto; touch-action: none; cursor: grab; }
     #preview-canvas.hidden { display: none; }
     canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; z-index: 1; }
     canvas.xr.active { display: block; }
@@ -438,6 +440,10 @@
     previewControls.minDistance = 0.5;
     previewControls.maxDistance = 50;
     previewControls.target.set(0, 0, 0);
+    // Ensure zoom/rotate are enabled for preview
+    previewControls.enableZoom = true;
+    previewControls.enableRotate = true;
+    previewControls.enablePan = false;
     
     // Add multiple lights for better visibility
     const previewLight1 = new THREE.DirectionalLight(0xffffff, 2);
