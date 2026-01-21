@@ -494,8 +494,7 @@
     animatePreview();
     console.log('Preview animation started');
 
-    // Three.js setup for XR (used for preview only; AR handled by MindAR renderer)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.domElement.classList.add('xr');
@@ -546,11 +545,6 @@
     let modelKey = null;
     let currentModelKey = null;
     let placed = false;
-    let xrSession = null;
-    let xrRefSpace = null;
-    let viewerSpace = null;
-    let hitTestSource = null;
-    let currentHitPose = null;
     let hasPinData = false;
     let originalFileName = '';
     let existingPinData = null;
@@ -959,7 +953,7 @@
         isPreviewMode = false;
         previewCanvas.classList.add('hidden');
         renderer.domElement.classList.remove('active');
-        renderer.setAnimationLoop(null);
+
 
         // Hide main UI and show XR overlay
         document.getElementById('ui').style.display = 'none';
@@ -1321,7 +1315,7 @@
       const s = new THREE.Vector3();
       relMatrix.decompose(p, q, s);
       const pinData = {
-        ref: { type: 'anchor', id: 'hit-test-anchor' },
+        ref: { type: 'image', id: 'mindar-anchor' },
         relative: {
           position: { x: p.x, y: p.y, z: p.z },
           quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
