@@ -685,8 +685,40 @@
                   model = gltf.scene;
                   model.visible = false;
                   model.scale.setScalar(1.0);
+                  
+                  // Make sure model has proper materials for rendering in AR
+                  model.traverse((child) => {
+                    if (child.isMesh) {
+                      if (!child.material) {
+                        child.material = new THREE.MeshStandardMaterial({ 
+                          color: 0xff6600,
+                          metalness: 0.3,
+                          roughness: 0.7,
+                          side: THREE.DoubleSide
+                        });
+                      } else {
+                        // Ensure materials are properly set for AR rendering
+                        if (Array.isArray(child.material)) {
+                          child.material = child.material.map(mat => {
+                            const clonedMat = mat.clone();
+                            clonedMat.side = THREE.DoubleSide;
+                            clonedMat.needsUpdate = true;
+                            return clonedMat;
+                          });
+                        } else {
+                          const clonedMat = child.material.clone();
+                          clonedMat.side = THREE.DoubleSide;
+                          clonedMat.needsUpdate = true;
+                          child.material = clonedMat;
+                        }
+                      }
+                      child.castShadow = true;
+                      child.receiveShadow = true;
+                    }
+                  });
+                  
                   scene.add(model);
-                  console.log('✓ Model added to XR scene');
+                  console.log('✓ Model added to preview scene');
                   
                   // Add to preview scene (deep clone for independent manipulation)
                   previewModel = gltf.scene.clone(true);
@@ -1013,6 +1045,17 @@
       // Add some light
       const hemi2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
       mindarScene.add(hemi2);
+      
+      // Add directional light for better visibility
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      dirLight.position.set(5, 10, 7);
+      mindarScene.add(dirLight);
+      
+      // Add ambient light
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+      mindarScene.add(ambLight);
+      
+      console.log('✓ Lights added to MindAR scene');
 
       mindarAnchor = mindarThree.addAnchor(0);
       mindarAnchor.onTargetFound = async () => {
@@ -1034,20 +1077,51 @@
 
         // For both show and edit modes: make model visible and place it at the anchor's world pose
         if (model) {
-          // Ensure model is not parented to the anchor group so it can be moved independently
+          // Remove model from old parent (preview scene) if needed
           if (model.parent && model.parent !== mindarScene) {
             model.parent.remove(model);
+            console.log('✓ Model removed from preview scene');
           }
-          if (model.parent !== mindarScene) {
+          
+          // Add to MindAR scene if not already there
+          if (!mindarScene.children.includes(model)) {
             mindarScene.add(model);
+            console.log('✓ Model added to MindAR scene', 'Total children in scene:', mindarScene.children.length);
           }
+
+          // Prepare model for AR rendering
+          model.visible = true;
+          console.log('✓ Model visibility set to true');
+          
+          // Ensure all meshes in the model have proper materials for AR
+          let visibleMeshCount = 0;
+          model.traverse((child) => {
+            if (child.isMesh) {
+              child.visible = true;
+              visibleMeshCount++;
+              child.castShadow = true;
+              child.receiveShadow = true;
+              if (child.material) {
+                if (Array.isArray(child.material)) {
+                  child.material.forEach(mat => {
+                    mat.needsUpdate = true;
+                  });
+                } else {
+                  child.material.needsUpdate = true;
+                }
+              }
+            }
+          });
+          console.log(`✓ Made ${visibleMeshCount} meshes visible in AR`);
 
           if (existingPinData && existingPinData.relative) {
             // Apply saved relative data (will use anchorPoseMatrix internally)
             applyPinDataRelativeToAnchor(existingPinData);
+            console.log('✓ Applied relative pin data');
           } else if (existingPinData) {
             // Apply absolute pin data
             applyPinDataToModel(existingPinData);
+            console.log('✓ Applied absolute pin data');
           } else {
             // Place model exactly at the detected anchor world transform
             const p = new THREE.Vector3();
@@ -1057,10 +1131,11 @@
             model.position.copy(p);
             model.quaternion.copy(q);
             model.scale.copy(s);
+            console.log('✓ Positioned model at anchor:', p, 'Scale:', s);
           }
 
-          model.visible = true;
           placed = true;
+          console.log('✓ Model positioned and made visible in AR', 'Model visible:', model.visible, 'Position:', model.position);
         }
 
         // Show/hide controls depending on mode; edit mode allows manipulation
@@ -1071,8 +1146,10 @@
         } else {
           xrControls.style.display = 'block';
           anchorLocked = true;
-          xrScaleInput.value = model.scale.x;
-          xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          if (model) {
+            xrScaleInput.value = model.scale.x;
+            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
+          }
         }
       };
       mindarAnchor.onTargetLost = () => {
@@ -1113,6 +1190,10 @@
       mindarRenderer.setAnimationLoop(() => {
         if (anchorReady && mindarAnchor && mindarAnchor.group) {
           anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
+        }
+        // Ensure model remains visible in AR view
+        if (model && placed) {
+          model.visible = true;
         }
         mindarRenderer.render(mindarScene, mindarCamera);
       });
