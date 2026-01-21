@@ -157,10 +157,22 @@
         <input id="xr-rotate" type="range" min="0" max="360" step="1" value="0" />
         <span id="xr-rotate-val" class="value-display">0°</span>
       </div>
+
+      <div class="control-row">
+        <label id="xr-offset-x-label">X (m):</label>
+        <input id="xr-offset-x" type="number" step="0.01" value="0" />
+        <span class="value-display" style="min-width:60px"></span>
+      </div>
+
+      <div class="control-row">
+        <label id="xr-offset-y-label">Y (m):</label>
+        <input id="xr-offset-y" type="number" step="0.01" value="0" />
+        <button id="xr-apply-offset" class="btn-secondary" style="margin-left:8px;">تطبيق</button>
+      </div>
       
       <p id="xr-status" class="status-text">النموذج مثبت - اضبط الإعدادات</p>
       
-      <button id="xr-save-aws" class="btn-primary">حفظ في AWS</button>
+      <button id="xr-save-aws" class="btn-primary" disabled>حفظ في AWS</button>
     </div>
   </div>
 
@@ -323,6 +335,11 @@
     const xrRotateVal = document.getElementById('xr-rotate-val');
     const xrSaveAWSBtn = document.getElementById('xr-save-aws');
     const xrPinBtn = document.getElementById('xr-pin-btn');
+    const xrOffsetX = document.getElementById('xr-offset-x');
+    const xrOffsetY = document.getElementById('xr-offset-y');
+    const xrApplyOffsetBtn = document.getElementById('xr-apply-offset');
+    if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = true;
+    if (xrSaveAWSBtn) xrSaveAWSBtn.disabled = true;
     
     const alertModal = document.getElementById('alert-modal');
     const alertMessage = document.getElementById('alert-message');
@@ -524,6 +541,8 @@
     scene.add(hitLine);
 
     let model = null;
+    let anchoredModel = null; // stays attached to anchor
+    let movedModel = null;    // copy that user moves with X/Y
     let modelKey = null;
     let currentModelKey = null;
     let placed = false;
@@ -1090,7 +1109,11 @@
           // Attach model to the anchor group so it follows the tracked image
           if (mindarAnchor && mindarAnchor.group && !mindarAnchor.group.children.includes(model)) {
             mindarAnchor.group.add(model);
+            anchoredModel = model;
             console.log('✓ Model added to anchor group');
+            // Enable save/apply controls when anchor is visible
+            xrSaveAWSBtn.disabled = false;
+            if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = false;
           }
 
           // Prepare model for AR rendering
@@ -1186,6 +1209,11 @@
         xrImageIndicator.style.display = 'block';
         imageTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
         surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
+        // Disable save/apply controls when anchor lost
+        if (xrSaveAWSBtn) xrSaveAWSBtn.disabled = true;
+        if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = true;
+        // Hide moved copy until anchor returns
+        if (movedModel) movedModel.visible = false;
       };
 
       await mindarThree.start();
@@ -1371,6 +1399,41 @@
         model.rotation.y = (deg * Math.PI) / 180;
       }
     });
+
+    // Apply offset button: create/move a copied model at anchor-relative X/Y
+    if (xrApplyOffsetBtn) {
+      xrApplyOffsetBtn.addEventListener('click', () => {
+        if (!anchorPoseMatrix || !mindarScene || !model) {
+          showAlert(textContent[document.documentElement.lang].anchorScan);
+          return;
+        }
+        const x = parseFloat(xrOffsetX.value) || 0;
+        const y = parseFloat(xrOffsetY.value) || 0;
+        // Interpret inputs as anchor-local X (right) and Z (forward)
+        const relPos = new THREE.Vector3(x, 0, y);
+        const relQuat = new THREE.Quaternion(0,0,0,1);
+        const relScale = model.scale.clone();
+        const relMatrix = new THREE.Matrix4().compose(relPos, relQuat, relScale);
+        const worldMatrix = new THREE.Matrix4().copy(anchorPoseMatrix).multiply(relMatrix);
+        const p = new THREE.Vector3();
+        const q = new THREE.Quaternion();
+        const s = new THREE.Vector3();
+        worldMatrix.decompose(p, q, s);
+
+        if (!movedModel) {
+          movedModel = model.clone(true);
+          // Clone materials to avoid shared references
+          movedModel.traverse((c) => { if (c.isMesh && c.material) c.material = c.material.clone(); });
+          mindarScene.add(movedModel);
+        }
+        movedModel.position.copy(p);
+        movedModel.quaternion.copy(q);
+        movedModel.scale.copy(s);
+        movedModel.visible = true;
+        // Keep anchoredModel as child of anchor (still follows image)
+        if (anchoredModel) anchoredModel.visible = true;
+      });
+    }
     
 
     
