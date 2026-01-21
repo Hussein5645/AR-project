@@ -681,12 +681,14 @@
                 
                 // Load the model using GLTFLoader
                 loader.load(fileUrl, (gltf) => {
-                  console.log('✓ Model loaded successfully');
-                  model = gltf.scene;
+                  console.log('✓ GLTF loaded successfully');
+
+                  // Prepare AR model (this will be used in MindAR)
+                  model = gltf.scene.clone(true);
                   model.visible = false;
                   model.scale.setScalar(1.0);
-                  
-                  // Make sure model has proper materials for rendering in AR
+
+                  // Ensure AR model materials are safe for runtime (clone & update)
                   model.traverse((child) => {
                     if (child.isMesh) {
                       if (!child.material) {
@@ -697,7 +699,6 @@
                           side: THREE.DoubleSide
                         });
                       } else {
-                        // Ensure materials are properly set for AR rendering
                         if (Array.isArray(child.material)) {
                           child.material = child.material.map(mat => {
                             const clonedMat = mat.clone();
@@ -716,11 +717,8 @@
                       child.receiveShadow = true;
                     }
                   });
-                  
-                  scene.add(model);
-                  console.log('✓ Model added to preview scene');
-                  
-                  // Add to preview scene (deep clone for independent manipulation)
+
+                  // Create a separate preview model for the non-AR preview scene
                   previewModel = gltf.scene.clone(true);
                   previewModel.scale.setScalar(1.0);
                   
@@ -1083,10 +1081,10 @@
             console.log('✓ Model removed from preview scene');
           }
           
-          // Add to MindAR scene if not already there
-          if (!mindarScene.children.includes(model)) {
-            mindarScene.add(model);
-            console.log('✓ Model added to MindAR scene', 'Total children in scene:', mindarScene.children.length);
+          // Attach model to the anchor group so it follows the tracked image
+          if (mindarAnchor && mindarAnchor.group && !mindarAnchor.group.children.includes(model)) {
+            mindarAnchor.group.add(model);
+            console.log('✓ Model added to anchor group');
           }
 
           // Prepare model for AR rendering
@@ -1115,23 +1113,22 @@
           console.log(`✓ Made ${visibleMeshCount} meshes visible in AR`);
 
           if (existingPinData && existingPinData.relative) {
-            // Apply saved relative data (will use anchorPoseMatrix internally)
+            // Apply saved relative data directly (model is child of anchor group)
             applyPinDataRelativeToAnchor(existingPinData);
-            console.log('✓ Applied relative pin data');
+            console.log('✓ Applied relative pin data to model (anchor-local)');
           } else if (existingPinData) {
-            // Apply absolute pin data
-            applyPinDataToModel(existingPinData);
-            console.log('✓ Applied absolute pin data');
+            // If only absolute data exists, place model at identity relative to anchor
+            // (Absolute pin-handling requires converting saved world coords to anchor-local; using identity as safe default)
+            model.position.set(0, 0, 0);
+            model.quaternion.set(0, 0, 0, 1);
+            model.scale.setScalar(existingPinData.scale?.x || 1);
+            console.log('✓ Applied default relative placement (no relative data)');
           } else {
-            // Place model exactly at the detected anchor world transform
-            const p = new THREE.Vector3();
-            const q = new THREE.Quaternion();
-            const s = new THREE.Vector3();
-            anchorPoseMatrix.decompose(p, q, s);
-            model.position.copy(p);
-            model.quaternion.copy(q);
-            model.scale.copy(s);
-            console.log('✓ Positioned model at anchor:', p, 'Scale:', s);
+            // Default: place model at anchor origin (child-local)
+            model.position.set(0, 0, 0);
+            model.quaternion.set(0, 0, 0, 1);
+            model.scale.setScalar(1);
+            console.log('✓ Placed AR model at anchor origin');
           }
 
           placed = true;
@@ -1220,24 +1217,13 @@
     }
 
     function applyPinDataRelativeToAnchor(pd) {
-      if (!pd || !pd.relative || !model || !anchorPoseMatrix) return;
+      // Apply relative pin data directly as anchor-local transform
+      if (!pd || !pd.relative || !model) return;
       const rel = pd.relative;
-      const relMatrix = new THREE.Matrix4();
-      const relPos = new THREE.Vector3(rel.position.x, rel.position.y, rel.position.z);
-      const relQuat = new THREE.Quaternion(rel.quaternion.x, rel.quaternion.y, rel.quaternion.z, rel.quaternion.w);
-      const relScale = new THREE.Vector3(rel.scale.x, rel.scale.y, rel.scale.z);
-      relMatrix.compose(relPos, relQuat, relScale);
-      const worldMatrix = new THREE.Matrix4().copy(anchorPoseMatrix).multiply(relMatrix);
-      const p = new THREE.Vector3();
-      const q = new THREE.Quaternion();
-      const s = new THREE.Vector3();
-      worldMatrix.decompose(p, q, s);
-      model.position.copy(p);
-      model.quaternion.copy(q);
-      model.scale.copy(s);
-      if (rel.rotation && typeof rel.rotation.y === 'number') {
-        model.rotation.y = rel.rotation.y;
-      }
+      if (rel.position) model.position.set(rel.position.x, rel.position.y, rel.position.z);
+      if (rel.quaternion) model.quaternion.set(rel.quaternion.x, rel.quaternion.y, rel.quaternion.z, rel.quaternion.w);
+      if (rel.scale) model.scale.set(rel.scale.x, rel.scale.y, rel.scale.z);
+      if (rel.rotation && typeof rel.rotation.y === 'number') model.rotation.y = rel.rotation.y;
     }
 
     async function savePinDataWithAnchor() {
@@ -1256,9 +1242,24 @@
       }
 
       savingInProgress = true;
-      const modelMatrix = new THREE.Matrix4().compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
-      const invAnchor = new THREE.Matrix4().copy(anchorPoseMatrix).invert();
-      const relMatrix = new THREE.Matrix4().multiplyMatrices(invAnchor, modelMatrix);
+      // Compute the anchor-local (relative) transform to save.
+      // If the model is already a child of the anchor group, its transform is already anchor-local.
+      let relMatrix = new THREE.Matrix4();
+      try {
+        if (model.parent === (mindarAnchor && mindarAnchor.group)) {
+          // model.position/quaternion/scale are anchor-local
+          relMatrix.compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
+        } else {
+          // compute model world matrix then convert to anchor-local using anchorPoseMatrix
+          model.updateMatrixWorld(true);
+          const modelWorld = model.matrixWorld.clone();
+          const invAnchor = new THREE.Matrix4().copy(anchorPoseMatrix).invert();
+          relMatrix.multiplyMatrices(invAnchor, modelWorld);
+        }
+      } catch (err) {
+        console.warn('Failed to compute relative matrix, falling back to identity', err);
+        relMatrix.identity();
+      }
       const p = new THREE.Vector3();
       const q = new THREE.Quaternion();
       const s = new THREE.Vector3();
@@ -1317,13 +1318,22 @@
     }
     function placeModel() {
       if (!model || !anchorPoseMatrix || (!anchorReady && !anchorLocked)) return;
+      // Ensure model is attached to the anchor group so placement is stable
+      if (mindarAnchor && mindarAnchor.group && model.parent !== mindarAnchor.group) {
+        if (model.parent) model.parent.remove(model);
+        mindarAnchor.group.add(model);
+      }
+
       if (!placed && existingPinData) {
         if (existingPinData.relative) {
           applyPinDataRelativeToAnchor(existingPinData);
         } else {
-          applyPinDataToModel(existingPinData);
+          // If only absolute pin data exists, place at anchor-local origin as safe fallback
+          model.position.set(0, 0, 0);
+          model.quaternion.set(0, 0, 0, 1);
         }
       }
+
       model.visible = true;
       placed = true;
       xrSurfaceIndicator.style.display = 'none';
