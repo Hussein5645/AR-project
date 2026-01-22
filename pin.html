@@ -175,22 +175,18 @@
             try {
                 updateStatus('Initializing AR engine...');
                 
-                const container = document.getElementById('ar-container');
-                runtime = new Controller({
-                    canvas: canvas,
-                    maxTrack: 1,
-                    uiLoading: 'yes',
-                    filterMinCf: 0.1,
-                    missTolerance: 5,
-                    warmupTolerance: 5
-                });
-
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'environment' }
                 });
                 
                 video.srcObject = stream;
-                await runtime.build();
+
+                // Initialize Controller with canvas
+                runtime = new Controller({
+                    canvas: canvas
+                });
+
+                // Start the AR controller
                 await runtime.start();
 
                 updateStatus('AR Ready - Point at marker', false);
