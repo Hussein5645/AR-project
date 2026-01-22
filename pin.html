@@ -96,6 +96,55 @@
             cursor: not-allowed;
         }
 
+        #placement-controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .placement-btn {
+            background: #007bff;
+            color: #fff;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        .placement-btn:hover {
+            background: #0056b3;
+        }
+
+        .placement-btn.pin {
+            background: #28a745;
+        }
+
+        .placement-btn.pin:hover {
+            background: #218838;
+        }
+
+        #placement-info {
+            position: fixed;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 100;
+            font-size: 14px;
+            display: none;
+            text-align: center;
+        }
+
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
@@ -231,6 +280,16 @@
     <!-- Load Model Button -->
     <button id="load-model-button" onclick="startLoadingModel()">Load Model</button>
 
+    <!-- Placement Controls -->
+    <div id="placement-controls">
+        <button class="placement-btn" onclick="moveModelCloser()">Move Closer</button>
+        <button class="placement-btn" onclick="moveModelFarther()">Move Away</button>
+        <button class="placement-btn pin" onclick="pinModel()">Pin Model</button>
+    </div>
+
+    <!-- Placement Info -->
+    <div id="placement-info">Drag to move • Swipe to rotate</div>
+
     <!-- Camera Canvas -->
     <canvas id="camera-canvas"></canvas>
 
@@ -247,12 +306,24 @@
         <!-- 3D Model Entity -->
         <a-entity 
             id="model-entity"
-            position="0 0 -2"
+            position="0 0 -1.5"
             rotation="0 0 0"
             scale="1 1 1"
         >
             <!-- Model will be loaded here -->
         </a-entity>
+
+        <!-- Surface detection plane -->
+        <a-plane 
+            id="surface-detector"
+            position="0 -0.5 -1.5"
+            rotation="-90 0 0"
+            width="10"
+            height="10"
+            color="#444"
+            opacity="0.3"
+            visible="false"
+        ></a-plane>
 
         <!-- Light sources for better visibility -->
         <a-light type="ambient" intensity="2" color="#fff"></a-light>
@@ -334,6 +405,13 @@
         let currentModelKey = null;
         let watchId = null;
         let modelLoaded = false;
+        let modelPinned = false;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let modelRotationY = 0;
+        const placementControls = document.getElementById('placement-controls');
+        const placementInfo = document.getElementById('placement-info');
 
         // Get query parameters
         function getQueryParam(name) {
@@ -551,6 +629,14 @@
                 loadingScreen.style.display = 'none';
                 loadModelButton.style.display = 'none';
                 modelLoaded = true;
+                modelPinned = false;
+                
+                // Show placement controls
+                placementControls.style.display = 'flex';
+                placementInfo.style.display = 'block';
+                
+                // Add touch/mouse controls for model placement
+                setupModelControls();
                 
                 // Update UI
                 updateDistanceAndBearing();
@@ -589,6 +675,106 @@
             } else {
                 alert('No model key specified. Use ?model=KEY');
             }
+        }
+
+        // Model placement controls
+        function setupModelControls() {
+            const modelEntity = document.getElementById('model-entity');
+            const canvas = document.getElementById('camera-canvas');
+            
+            // Mouse drag
+            canvas.addEventListener('mousedown', (e) => {
+                if (modelPinned) return;
+                isDragging = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (!isDragging || modelPinned) return;
+                const deltaX = e.clientX - dragStartX;
+                const deltaY = e.clientY - dragStartY;
+                
+                // Rotate model on X axis with vertical drag
+                const rotX = (deltaY / window.innerHeight) * 180;
+                // Rotate model on Y axis with horizontal drag
+                modelRotationY = (deltaX / window.innerWidth) * 180;
+                
+                const currentRot = modelEntity.getAttribute('rotation');
+                modelEntity.setAttribute('rotation', `${rotX} ${modelRotationY} 0`);
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+            
+            // Touch controls
+            canvas.addEventListener('touchstart', (e) => {
+                if (modelPinned) return;
+                isDragging = true;
+                dragStartX = e.touches[0].clientX;
+                dragStartY = e.touches[0].clientY;
+            });
+            
+            canvas.addEventListener('touchmove', (e) => {
+                if (!isDragging || modelPinned) return;
+                e.preventDefault();
+                const deltaX = e.touches[0].clientX - dragStartX;
+                const deltaY = e.touches[0].clientY - dragStartY;
+                
+                const rotX = (deltaY / window.innerHeight) * 180;
+                modelRotationY = (deltaX / window.innerWidth) * 180;
+                
+                const currentRot = modelEntity.getAttribute('rotation');
+                modelEntity.setAttribute('rotation', `${rotX} ${modelRotationY} 0`);
+            });
+            
+            canvas.addEventListener('touchend', () => {
+                isDragging = false;
+            });
+        }
+        
+        // Move model closer to camera
+        function moveModelCloser() {
+            const modelEntity = document.getElementById('model-entity');
+            const pos = modelEntity.getAttribute('position');
+            if (pos.z < -0.5) {
+                modelEntity.setAttribute('position', `${pos.x} ${pos.y} ${pos.z + 0.1}`);
+            }
+        }
+        
+        // Move model farther from camera
+        function moveModelFarther() {
+            const modelEntity = document.getElementById('model-entity');
+            const pos = modelEntity.getAttribute('position');
+            if (pos.z > -5) {
+                modelEntity.setAttribute('position', `${pos.x} ${pos.y} ${pos.z - 0.1}`);
+            }
+        }
+        
+        // Pin model to surface
+        function pinModel() {
+            const modelEntity = document.getElementById('model-entity');
+            const pos = modelEntity.getAttribute('position');
+            
+            // Stop animations
+            modelEntity.removeAttribute('animation');
+            
+            // Lock the model
+            modelPinned = true;
+            
+            // Hide placement controls
+            placementControls.style.display = 'none';
+            placementInfo.style.display = 'none';
+            
+            // Show success message
+            loadingText.textContent = 'Model pinned!';
+            loadingScreen.style.display = 'flex';
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 1500);
+            
+            console.log('Model pinned at position:', pos);
         }
 
         // Initialize on page load
