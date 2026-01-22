@@ -1,1508 +1,301 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pin AR Model (WebXR)</title>
-  <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
-  <script src="aws-config.js"></script>
-  <script type="module" src="lib/mindar/mindar-image.prod.js"></script>
-  <style>
-    body[lang="ar"] { direction: rtl; }
-    body[lang="en"] { direction: ltr; }
-    html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
-    body { font-family: Arial, sans-serif; background: #121212; color: #fff; }
-    #ui { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; width: calc(100% - 20px); max-width: 520px; z-index: 10; pointer-events: auto; }
-    #ui h2 { margin: 0 0 8px 0; font-size: 18px; }
-    #ui .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-    #ui input[type="text"], #ui input[type="range"] { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #2a2a2a; color: #fff; }
-    #ui input[type="text"]::placeholder { color: #bbb; }
-    #ui button { padding: 10px 14px; border: none; border-radius: 6px; background: #007bff; color: #fff; font-weight: bold; cursor: pointer; pointer-events: auto; }
-    #ui button.secondary { background: #444; }
-    #ui button:disabled { opacity: 0.6; cursor: not-allowed; }
-    #status { font-size: 12px; color: #bbb; margin-top: 4px; }
-    #lang-toggle { position: fixed; top: 10px; right: 10px; z-index: 11; padding: 8px 12px; border-radius: 6px; background: #444; color: #fff; cursor: pointer; pointer-events: auto; }
-    #preview-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
-    /* allow pointer/touch interactions on preview canvas */
-    #preview-canvas { pointer-events: auto; touch-action: none; cursor: grab; }
-    #preview-canvas.hidden { display: none; }
-    canvas.xr { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; z-index: 1; }
-    canvas.xr.active { display: block; }
-    #loading-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 1.5em; z-index: 20; transition: opacity 0.5s ease; }
-    #loading-screen.hidden { opacity: 0; pointer-events: none; }
-    #ar-overlay { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 15px 20px; border-radius: 8px; display: none; z-index: 25; min-width: 280px; text-align: center; }
-    #ar-overlay button { width: 100%; margin: 5px 0; padding: 12px; border: none; border-radius: 6px; background: #28a745; color: #fff; font-weight: bold; cursor: pointer; }
-    #ar-overlay button:hover { background: #218838; }
-    #ar-overlay p { margin: 5px 0; font-size: 14px; color: #bbb; }
-    
-    #xr-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
-    #xr-overlay > * { pointer-events: auto; }
-    #xr-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 20px; border-radius: 12px; display: none; min-width: 320px; }
-    body[lang="ar"] #xr-controls { direction: rtl; }
-    body[lang="en"] #xr-controls { direction: ltr; }
-    #xr-controls h3 { margin: 0 0 15px 0; font-size: 16px; color: #fff; text-align: center; }
-    #xr-controls .control-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
-    #xr-controls label { color: #fff; font-size: 14px; min-width: 60px; }
-    #xr-controls input[type="range"] { flex: 1; }
-    #xr-controls .value-display { color: #0f0; font-weight: bold; min-width: 60px; text-align: center; }
-    #xr-controls button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin: 5px 0; font-size: 14px; }
-    #xr-controls .btn-primary { background: #28a745; color: #fff; }
-    #xr-controls .btn-primary:hover { background: #218838; }
-    #xr-controls .btn-secondary { background: #6c757d; color: #fff; }
-    #xr-controls .btn-secondary:hover { background: #5a6268; }
-    #xr-controls .status-text { color: #ffc107; font-size: 13px; text-align: center; margin: 10px 0; }
-    #xr-surface-indicator { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ffaa; font-size: 18px; text-align: center; display: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
-    #xr-surface-indicator .icon { font-size: 48px; margin-bottom: 10px; }
-    #xr-pin-btn { padding: 16px 32px; border: none; border-radius: 50px; background: #00ffaa; color: #000; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(0,255,170,0.4); transition: all 0.3s; }
-    #xr-pin-btn:hover { background: #00dd88; transform: scale(1.05); box-shadow: 0 6px 20px rgba(0,255,170,0.6); }
-    #xr-pin-btn:active { transform: scale(0.95); }
-    /* Image tracking indicator */
-    #xr-image-indicator { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 8px; display: none; min-width: 260px; text-align: center; z-index: 26; }
-    #xr-image-indicator .icon { font-size: 28px; margin-bottom: 6px; }
-    #xr-image-indicator .status { font-size: 14px; color: #bbb; }
-    #xr-image-indicator.scanning { box-shadow: 0 0 12px rgba(0,255,170,0.35); border: 1px solid rgba(0,255,170,0.35); }
-    #xr-image-indicator.scanning::after { content: ''; display: block; width: 26px; height: 26px; border: 3px solid #00ffaa; border-right-color: transparent; border-radius: 50%; margin: 10px auto 0; animation: spin 1s linear infinite; }
-    #xr-image-indicator.found { border: 2px solid #00ffaa; box-shadow: 0 0 20px rgba(0,255,170,0.6); background: rgba(0,0,0,0.9); }
-    #xr-image-indicator.found .status { font-size: 14px; color: #00ffaa; font-weight: bold; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    /* Anchor scan visual (screen-center dots) */
-    #anchor-scan-visual { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 180px; height: 180px; pointer-events: none; display: none; z-index: 27; }
-    #anchor-scan-visual .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px dashed rgba(0,255,170,0.4); animation: ring-pulse 2s ease-in-out infinite; }
-    #anchor-scan-visual .ring:nth-child(2) { animation-delay: 0.3s; opacity: 0.6; }
-    #anchor-scan-visual .ring:nth-child(3) { animation-delay: 0.6s; opacity: 0.35; }
-    #anchor-scan-visual .dot { position: absolute; width: 10px; height: 10px; background: #00ffaa; border-radius: 50%; top: 50%; left: 50%; transform-origin: -70px 0; animation: orbit 1.2s linear infinite; box-shadow: 0 0 8px rgba(0,255,170,0.6); }
-    #anchor-scan-visual .dot:nth-child(4) { animation-delay: 0.15s; }
-    #anchor-scan-visual .dot:nth-child(5) { animation-delay: 0.3s; }
-    #anchor-scan-visual .dot:nth-child(6) { animation-delay: 0.45s; }
-    #anchor-scan-visual .dot:nth-child(7) { animation-delay: 0.6s; }
-    #anchor-scan-visual .dot:nth-child(8) { animation-delay: 0.75s; }
-    @keyframes ring-pulse {
-      0% { transform: scale(0.75); opacity: 0.5; }
-      50% { transform: scale(1); opacity: 0.35; }
-      100% { transform: scale(1.25); opacity: 0; }
-    }
-    @keyframes orbit {
-      from { transform: rotate(0deg) translateX(70px); }
-      to { transform: rotate(360deg) translateX(70px); }
-    }
-    
-    /* Modal Dialogs */
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
-    .modal-overlay.show { display: flex; }
-    .modal-content { background: #1e1e1e; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
-    body[lang="ar"] .modal-content { direction: rtl; text-align: right; }
-    body[lang="en"] .modal-content { direction: ltr; text-align: left; }
-    .modal-content h3 { margin: 0 0 15px 0; color: #fff; font-size: 20px; }
-    .modal-content p { margin: 0 0 25px 0; color: #bbb; font-size: 15px; line-height: 1.6; }
-    .modal-content .icon-warning { font-size: 48px; text-align: center; margin-bottom: 15px; }
-    .modal-buttons { display: flex; gap: 10px; flex-direction: column; }
-    .modal-buttons button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: all 0.2s; }
-    .modal-buttons .btn-primary { background: #28a745; color: #fff; }
-    .modal-buttons .btn-primary:hover { background: #218838; transform: translateY(-2px); }
-    .modal-buttons .btn-info { background: #17a2b8; color: #fff; }
-    .modal-buttons .btn-info:hover { background: #138496; transform: translateY(-2px); }
-    .modal-buttons .btn-danger { background: #dc3545; color: #fff; }
-    .modal-buttons .btn-danger:hover { background: #c82333; }
-    .modal-buttons .btn-secondary { background: #6c757d; color: #fff; }
-    .modal-buttons .btn-secondary:hover { background: #5a6268; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Model Viewer - MindAR</title>
+    <script src="aws-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    /* Force MindAR video/canvas to fill the viewport in portrait */
-    .mindar-video, .mindar-canvas { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; object-fit: cover !important; }
-    .mindar-canvas { z-index: 1 !important; }
-    .mindar-video { z-index: 0 !important; }
-  </style>
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+
+        #ar-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #camera-feed {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #model-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 50px;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        .error {
+            color: #ff6b6b;
+        }
+
+        .success {
+            color: #51cf66;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+    </style>
 </head>
-<body lang="ar">
-  <canvas id="preview-canvas"></canvas>
-  <div id="loading-screen" class="hidden">جار التحميل...</div>
-  <button id="lang-toggle">English</button>
-
-  <div id="ar-overlay">
-    <p id="ar-overlay-text">النموذج مثبت! احفظ الموقع؟</p>
-    <button id="save-pin-aws">حفظ بيانات التثبيت في AWS</button>
-  </div>
-
-  <div id="xr-overlay">
-    
-    <div id="xr-image-indicator">
-      <div class="icon">🖼️</div>
-      <div id="image-text" class="status">جار البحث عن الصورة المرجعية...</div>
-    </div>
-    <div id="anchor-scan-visual">
-      <div class="ring"></div>
-      <div class="ring"></div>
-      <div class="ring"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-    </div>
-    
-    <div id="xr-controls">
-      <h3 id="xr-title">إعدادات النموذج</h3>
-      
-      <div class="control-row">
-        <label id="xr-scale-label">الحجم:</label>
-        <input id="xr-scale" type="range" min="0.1" max="5" step="0.01" value="1" />
-        <span id="xr-scale-val" class="value-display">1.00×</span>
-      </div>
-      
-      <div class="control-row">
-        <label id="xr-rotate-label">الدوران:</label>
-        <input id="xr-rotate" type="range" min="0" max="360" step="1" value="0" />
-        <span id="xr-rotate-val" class="value-display">0°</span>
-      </div>
-
-      <div class="control-row">
-        <label id="xr-offset-x-label">X (m):</label>
-        <input id="xr-offset-x" type="number" step="0.01" value="0" />
-        <span class="value-display" style="min-width:60px"></span>
-      </div>
-
-      <div class="control-row">
-        <label id="xr-offset-y-label">Y (m):</label>
-        <input id="xr-offset-y" type="number" step="0.01" value="0" />
-        <button id="xr-apply-offset" class="btn-secondary" style="margin-left:8px;">تطبيق</button>
-      </div>
-      
-      <p id="xr-status" class="status-text">النموذج مثبت - اضبط الإعدادات</p>
-      
-      <button id="xr-save-aws" class="btn-primary" disabled>حفظ في AWS</button>
-    </div>
-  </div>
-
-  <div id="ui">
-    <h2 id="title">تثبيت النموذج في الواقع المعزز</h2>
-
-    <div class="row">
-      <button id="btn-show-pin" class="secondary" disabled>👁️ عرض بيانات التثبيت</button>
-      <button id="btn-edit-pin" class="btn-primary" disabled>✏️ تعديل بيانات التثبيت</button>
+<body>
+    <div id="ar-container">
+        <video id="camera-feed" playsinline autoplay></video>
+        <canvas id="ar-canvas" style="position: absolute; width: 100%; height: 100%;"></canvas>
     </div>
 
-    <div id="status">جار تحميل النموذج...</div>
-  </div>
-
-  <!-- (Decision modal removed; using direct buttons in UI) -->
-
-  <!-- Modal for Errors/Alerts -->
-  <div id="alert-modal" class="modal-overlay">
-    <div class="modal-content">
-      <h3 id="alert-title">تنبيه</h3>
-      <p id="alert-message"></p>
-      <div class="modal-buttons">
-        <button id="alert-ok" class="btn-primary">حسناً</button>
-      </div>
+    <div class="status" id="status">
+        Initializing AR...
     </div>
-  </div>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/",
-        "mindar-image-three": "./lib/mindar/mindar-image-three.prod.js"
-      }
-    }
-  </script>
+    <div class="controls">
+        <button id="load-model-btn" disabled>Load Model</button>
+        <button id="reset-btn">Reset</button>
+    </div>
 
-  <script type="module">
-    import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { MindARThree } from 'mindar-image-three';
+    <script type="module" src="lib/mindar/mindar-image.prod.js"></script>
+    <script type="module">
+        import { MindARImageRuntime } from './lib/mindar/mindar-image.prod.js';
 
-    // Language content
-    const textContent = {
-      ar: {
-        title: 'تثبيت النموذج في الواقع المعزز',
-        showPinBtn: '👁️ عرض بيانات التثبيت',
-        editPinBtn: '✏️ تعديل بيانات التثبيت',
-        statusAR: 'يتم بدء جلسة الواقع المعزز... ',
-        statusReady: 'جاهز. يتطلب Chrome على Android لدعم WebXR.',
-        statusLoaded: 'تم تحميل النموذج. اضغط بدء AR.',
-        statusLoading: 'جار تحميل النموذج...',
-        statusError: 'خطأ: يجب تحميل نموذج من الصفحة الرئيسية أولاً',
-        statusHasPinData: 'هذا النموذج يحتوي على بيانات تثبيت محفوظة',
-        statusNoPinData: 'لم يتم تثبيت هذا النموذج بعد - ابدأ AR لإضافة بيانات التثبيت',
-        confirmOverwrite: 'هذا النموذج يحتوي على بيانات تثبيت. هل تريد الكتابة فوقها؟\n\nاختر:\n- موافق: كتابة بيانات جديدة\n- إلغاء: عرض البيانات الحالية في showpin.html',
-        loading: 'جار التحميل...',
-        arOverlay: 'النموذج مثبت! احفظ الموقع؟',
-        savePinAWS: 'حفظ بيانات التثبيت في AWS',
-        toggleLang: 'English',
-        xrTitle: 'إعدادات النموذج',
-        xrScaleLabel: 'الحجم:',
-        xrRotateLabel: 'الدوران:',
-        xrStatus: 'النموذج مثبت - اضبط الإعدادات',
-        xrSaveAWS: 'حفظ في AWS',
-        xrReset: 'إعادة التثبيت',
-        surfaceText: 'ابحث عن سطح',
-        xrPinBtn: '📍 تثبيت الموقع',
-        alertTitle: 'تنبيه',
-        alertOk: 'حسناً',
-        webxrNotSupported: 'WebXR غير مدعوم على هذا الجهاز/المتصفح.',
-        arSessionFailed: 'فشل بدء جلسة AR',
-        noPinDataToSave: 'لا توجد بيانات تثبيت لحفظها',
-        anchorScan: 'اختر مرساة من السطح',
-        anchorLocked: 'تم تحديد المرساة - يمكنك التثبيت الآن',
-        anchorRequired: 'يجب اختيار مرساة قبل المتابعة',
-        anchorSavingGuard: 'يرجى اختيار المرساة قبل الحفظ',
-        anchorShowPrompt: 'اختر مرساة لعرض الموقع',
-        rescanForSave: 'امسح المرساة مرة أخرى لتثبيت موضع المجسم'
-      },
-      en: {
-        title: 'Pin the Model in AR',
-        showPinBtn: '👁️ View Pin Data',
-        editPinBtn: '✏️ Edit Pin Data',
-        statusAR: 'Starting AR session... ',
-        statusReady: 'Ready. Requires Chrome on Android with WebXR.',
-        statusLoaded: 'Model loaded. Tap Start AR.',
-        statusLoading: 'Loading model...',
-        statusError: 'Error: Please load a model from home page first',
-        statusHasPinData: 'This model has saved pin data',
-        statusNoPinData: 'Model not pinned yet - Start AR to add pin data',
-        confirmOverwrite: 'This model has pin data. Do you want to overwrite it?\n\nChoose:\n- OK: Create new pin data\n- Cancel: View current data in showpin.html',
-        loading: 'Loading content...',
-        arOverlay: 'Model pinned! Save location?',
-        savePinAWS: 'Save Pin Data to AWS',
-        toggleLang: 'Arabic',
-        xrTitle: 'Model Settings',
-        xrScaleLabel: 'Scale:',
-        xrRotateLabel: 'Rotate:',
-        xrStatus: 'Model placed - adjust settings',
-        xrSaveAWS: 'Save to AWS',
-        xrReset: 'Reposition',
-        surfaceText: 'Find a surface',
-        xrPinBtn: '📍 Pin Location',
-        alertTitle: 'Notice',
-        alertOk: 'OK',
-        webxrNotSupported: 'WebXR is not supported on this device/browser.',
-        arSessionFailed: 'Failed to start AR session',
-        noPinDataToSave: 'No pin data to save',
-        anchorScan: 'Tap a surface to pick an anchor',
-        anchorLocked: 'Anchor set - you can place now',
-        anchorRequired: 'You must select an anchor before continuing',
-        anchorSavingGuard: 'Please select the anchor before saving',
-        anchorShowPrompt: 'Select an anchor to show the pin',
-        rescanForSave: 'Rescan the anchor to lock the object position'
-      }
-    };
+        let runtime = null;
+        let modelUrl = null;
+        const statusEl = document.getElementById('status');
+        const loadModelBtn = document.getElementById('load-model-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const canvas = document.getElementById('ar-canvas');
+        const video = document.getElementById('camera-feed');
 
-    function setLang(lang) {
-      document.documentElement.lang = lang;
-      document.body.setAttribute('lang', lang);
-      const t = textContent[lang];
-      title.textContent = t.title;
-      btnShowPin.textContent = t.showPinBtn;
-      btnEditPin.textContent = t.editPinBtn;
-      document.getElementById('loading-screen').textContent = t.loading;
-      document.getElementById('ar-overlay-text').textContent = t.arOverlay;
-      document.getElementById('save-pin-aws').textContent = t.savePinAWS;
-      langToggle.textContent = t.toggleLang;
-      document.getElementById('xr-title').textContent = t.xrTitle;
-      document.getElementById('xr-scale-label').textContent = t.xrScaleLabel;
-      document.getElementById('xr-rotate-label').textContent = t.xrRotateLabel;
-      document.getElementById('xr-status').textContent = t.xrStatus;
-      document.getElementById('xr-save-aws').textContent = t.xrSaveAWS;
-      document.getElementById('xr-pin-btn').textContent = t.xrPinBtn;
-      document.getElementById('surface-text').textContent = t.surfaceText;
-      document.getElementById('alert-title').textContent = t.alertTitle;
-      document.getElementById('alert-ok').textContent = t.alertOk;
-    }
-
-    const langToggle = document.getElementById('lang-toggle');
-    const title = document.getElementById('title');
-    const btnShowPin = document.getElementById('btn-show-pin');
-    const btnEditPin = document.getElementById('btn-edit-pin');
-    const status = document.getElementById('status');
-    const loadingScreen = document.getElementById('loading-screen');
-    
-    const xrOverlay = document.getElementById('xr-overlay');
-    const xrControls = document.getElementById('xr-controls');
-    const xrSurfaceIndicator = document.getElementById('xr-surface-indicator');
-    const surfaceTextEl = document.getElementById('surface-text');
-    const xrImageIndicator = document.getElementById('xr-image-indicator');
-    const imageTextEl = document.getElementById('image-text');
-    const anchorScanVisual = document.getElementById('anchor-scan-visual');
-    const xrScaleInput = document.getElementById('xr-scale');
-    const xrScaleVal = document.getElementById('xr-scale-val');
-    const xrRotateInput = document.getElementById('xr-rotate');
-    const xrRotateVal = document.getElementById('xr-rotate-val');
-    const xrSaveAWSBtn = document.getElementById('xr-save-aws');
-    const xrPinBtn = document.getElementById('xr-pin-btn');
-    const xrOffsetX = document.getElementById('xr-offset-x');
-    const xrOffsetY = document.getElementById('xr-offset-y');
-    const xrApplyOffsetBtn = document.getElementById('xr-apply-offset');
-    if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = true;
-    if (xrSaveAWSBtn) xrSaveAWSBtn.disabled = true;
-    
-    const alertModal = document.getElementById('alert-modal');
-    const alertMessage = document.getElementById('alert-message');
-    const alertOkBtn = document.getElementById('alert-ok');
-
-    // Decision modal removed
-    
-    function showAlert(message) {
-      return new Promise((resolve) => {
-        alertMessage.textContent = message;
-        alertModal.classList.add('show');
-        
-        const okHandler = () => {
-          alertModal.classList.remove('show');
-          alertOkBtn.removeEventListener('click', okHandler);
-          resolve();
-        };
-        
-        alertOkBtn.addEventListener('click', okHandler);
-      });
-    }
-
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    let loadedBytes = 0;
-
-    // Toggle language
-    langToggle.addEventListener('click', () => {
-      const newLang = (document.documentElement.lang === 'ar') ? 'en' : 'ar';
-      setLang(newLang);
-    });
-
-    // Show loading screen with progress
-    function showLoadingScreen(show, totalBytes = 0) {
-      loadingScreen.classList.toggle('hidden', !show);
-      
-      if (show && totalBytes > 0) {
-        const updateProgress = () => {
-          const currentLang = document.documentElement.lang;
-          const baseText = textContent[currentLang].loading;
-          loadingScreen.innerText = `${baseText} ${(loadedBytes / (1024 * 1024)).toFixed(2)} MB / ${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
-          
-          if (!loadingScreen.classList.contains('hidden')) {
-            requestAnimationFrame(updateProgress);
-          }
-        };
-        updateProgress();
-      } else if (show) {
-        loadingScreen.innerText = textContent[document.documentElement.lang].loading;
-      }
-    }
-
-    // AWS configuration is loaded from aws-config.js
-    const s3 = new AWS.S3();
-    const bucketName = AWS_CONFIG.bucketName;
-
-    function decodePinData(encoded) {
-      if (!encoded) return null;
-      try {
-        let clean = encoded.trim().replace(/\s+/g, '');
-        clean = clean.replace(/\./g, '+');
-        let b64 = clean.replace(/-/g, '+').replace(/_/g, '/');
-        const pad = b64.length % 4;
-        if (pad) b64 += '='.repeat(4 - pad);
-        const jsonStr = atob(b64);
-        return JSON.parse(jsonStr);
-      } catch (e1) {
-        try {
-          const jsonStr = decodeURIComponent(encoded);
-          return JSON.parse(jsonStr);
-        } catch (e2) {
-          console.error('Pin data decode failed:', { e1, e2 });
-          return null;
+        // Get model URL from query parameter
+        function getModelUrlFromParams() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('modelUrl') || params.get('key');
         }
-      }
-    }
 
-    function extractPinDataFromKey(key) {
-      const m = key.match(/_PINNED_([A-Za-z0-9\-_=]+)(?:_|\.|$)/);
-      if (m && m[1]) {
-        return decodePinData(m[1]);
-      }
-      return null;
-    }
-
-    function hasPinnedAfterPrefix(key, prefixLen = 10) {
-      const idx = key.toLowerCase().indexOf('_pinned_');
-      // يجب أن تبدأ "_pinned_" مباشرة بعد أول 10 محارف (أي عند الفهرس 10)
-      return idx >= prefixLen;
-    }
-
-    function getQueryParam(name) {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get(name);
-    }
-
-    // Preview canvas setup
-    const previewCanvas = document.getElementById('preview-canvas');
-    const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
-    // Ensure correct color space for materials/textures
-    previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    previewRenderer.setSize(window.innerWidth, window.innerHeight);
-    previewRenderer.setPixelRatio(window.devicePixelRatio);
-    previewRenderer.shadowMap.enabled = true;
-    previewRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    
-    const previewScene = new THREE.Scene();
-    previewScene.background = new THREE.Color(0x1a1a1a);
-    
-    const previewCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    previewCamera.position.set(0, 1.5, 3);
-    
-    const previewControls = new OrbitControls(previewCamera, previewCanvas);
-    previewControls.enableDamping = true;
-    previewControls.dampingFactor = 0.05;
-    previewControls.minDistance = 0.5;
-    previewControls.maxDistance = 50;
-    previewControls.target.set(0, 0, 0);
-    // Ensure zoom/rotate are enabled for preview
-    previewControls.enableZoom = true;
-    previewControls.enableRotate = true;
-    previewControls.enablePan = false;
-    
-    // Add multiple lights for better visibility
-    const previewLight1 = new THREE.DirectionalLight(0xffffff, 2);
-    previewLight1.position.set(5, 10, 7);
-    previewScene.add(previewLight1);
-    
-    const previewLight2 = new THREE.DirectionalLight(0xffffff, 1);
-    previewLight2.position.set(-5, 5, -7);
-    previewScene.add(previewLight2);
-    
-    const previewLight3 = new THREE.AmbientLight(0xffffff, 1);
-    previewScene.add(previewLight3);
-    
-    const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-    previewScene.add(gridHelper);
-    
-    console.log('Preview scene setup complete');
-    
-    let previewModel = null;
-    let isPreviewMode = true;
-    
-    function animatePreview() {
-      if (isPreviewMode) {
-        requestAnimationFrame(animatePreview);
-        previewControls.update();
-        previewRenderer.render(previewScene, previewCamera);
-      }
-    }
-    
-    // Start animation loop immediately
-    animatePreview();
-    console.log('Preview animation started');
-
-
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.domElement.classList.add('xr');
-    document.body.appendChild(renderer.domElement);
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
-
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-    scene.add(hemi);
-
-    const reticleMaterial = new THREE.MeshBasicMaterial({ color: 0xff4444 });
-    const reticle = new THREE.Mesh(
-      new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
-      reticleMaterial
-    );
-    reticle.matrixAutoUpdate = false;
-    reticle.visible = false;
-    scene.add(reticle);
-
-    const surfacePulse = new THREE.Mesh(
-      new THREE.CircleGeometry(0.15, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.25 })
-    );
-    surfacePulse.matrixAutoUpdate = false;
-    surfacePulse.visible = false;
-    scene.add(surfacePulse);
-
-    // Surface highlight plane to make tappable surfaces clearer
-    const surfaceHighlight = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.6, 0.6),
-      new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.12, side: THREE.DoubleSide })
-    );
-    surfaceHighlight.geometry.rotateX(-Math.PI / 2);
-    surfaceHighlight.matrixAutoUpdate = false;
-    surfaceHighlight.visible = false;
-    scene.add(surfaceHighlight);
-
-    const hitLineGeom = new THREE.BufferGeometry();
-    hitLineGeom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
-    const hitLine = new THREE.Line(hitLineGeom, new THREE.LineBasicMaterial({ color: 0x00ffaa }));
-    hitLine.visible = false;
-    scene.add(hitLine);
-
-    let model = null;
-    let anchoredModel = null; // stays attached to anchor
-    let movedModel = null;    // copy that user moves with X/Y
-    let modelKey = null;
-    let currentModelKey = null;
-    let placed = false;
-    let hasPinData = false;
-    let originalFileName = '';
-    let existingPinData = null;
-    // Image tracking (visual reference) state
-    let currentMode = 'edit';
-    let markerFound = false;
-    let markerPoseMatrix = null;
-    let anchorPoseMatrix = null;
-    let trackedImageBitmap = null;
-    let trackedImageWidth = 0.20; // meters; adjust as needed for sightlogo.png real size
-    const trackedImageId = 'sightlogo.png';
-    let imageTrackingSupported = false;
-    let anchorReady = false;
-    let anchorLocked = false;
-    let awaitingSaveRescan = false;
-    let savingInProgress = false;
-
-    // MindAR state
-    let mindarThree = null;
-    let mindarAnchor = null;
-    let mindarRenderer = null;
-    let mindarScene = null;
-    let mindarCamera = null;
-    let mindTargetBuffer = null;
-    let mindarRunning = false;
-    const localMindARCore = './lib/mindar/mindar-image.prod.js';
-    const cdnMindARCore = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image.prod.js';
-
-    const handleXRSelect = () => placeModel();
-
-    const loader = new GLTFLoader();
-    loader.setCrossOrigin('anonymous');
-    // Initialize DRACOLoader for Draco-compressed glTF/glb files
-    try {
-      const dracoLoader = new DRACOLoader();
-      // Default to Google's hosted decoder; replace with local path if needed
-      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-      loader.setDRACOLoader(dracoLoader);
-      console.log('DRACOLoader initialized');
-    } catch (e) {
-      console.warn('DRACOLoader not available:', e);
-    }
-
-    function loadExternalScript(src) {
-      return new Promise((resolve, reject) => {
-        const el = document.createElement('script');
-        el.src = src;
-        el.async = true;
-        el.type = 'module';
-        el.onload = () => resolve();
-        el.onerror = () => reject(new Error('Failed to load ' + src));
-        document.head.appendChild(el);
-      });
-    }
-
-    async function loadTrackedImage() {
-      try {
-        // Try to fetch sightlogo.png from root, then fallback to icon/
-        let resp = await fetch(trackedImageId);
-        if (!resp.ok) {
-          resp = await fetch('icon/' + trackedImageId);
+        // Update status message
+        function updateStatus(message, isError = false) {
+            statusEl.innerHTML = message;
+            statusEl.className = isError ? 'status error' : 'status';
         }
-        if (!resp.ok) {
-          throw new Error('Failed to fetch tracked image');
-        }
-        const blob = await resp.blob();
-        trackedImageBitmap = await createImageBitmap(blob);
-        return true;
-      } catch (e) {
-        console.warn('Image tracking bitmap load failed:', e);
-        trackedImageBitmap = null;
-        return false;
-      }
-    }
 
-    function loadModelByPrefix(prefixVal) {
-      return new Promise((resolve, reject) => {
-        loadedBytes = 0;
-        
-        s3.listObjectsV2({ Bucket: bucketName, Prefix: prefixVal }, (err, data) => {
-          if (err) {
-            console.error('Error fetching bucket contents:', err);
-            reject(err);
-            return;
-          }
-          
-          if (!data || !data.Contents || data.Contents.length === 0) {
-            reject(new Error('No object found for prefix'));
-            return;
-          }
-          
-          const key = data.Contents[0].Key;
-          console.log('Found model key:', key);
-          const ext = key.split('.').pop().toLowerCase();
-          
-          // Check if model has pin data
-          if (key.includes('_PINNED_')) {
-            hasPinData = true;
-            // Extract pin data and original filename
-            const parts = key.split('_PINNED_');
-            if (parts.length > 1) {
-              const afterPinned = parts[1];
-              const matches = afterPinned.match(/^([^_]+)_(.+)$/);
-              if (matches) {
-                const encodedData = matches[1];
-                originalFileName = matches[2];
-                console.log('Has pin data, original filename:', originalFileName);
-                existingPinData = decodePinData(encodedData);
-              }
-            }
-          } else {
-            hasPinData = false;
-            // Extract original filename (remove 10-char prefix + underscore)
-            const prefixLength = 11; // 10 chars prefix + 1 underscore
-            originalFileName = key.substring(prefixLength);
-            console.log('No pin data, original filename:', originalFileName);
-          }
-          
-          if (ext !== 'glb' && ext !== 'gltf') {
-            reject(new Error('Unsupported file type. Use glb/gltf'));
-            return;
-          }
-          
-          const params = { Bucket: bucketName, Key: key };
-          
-          // Get file metadata first for progress tracking
-          s3.headObject(params, (err, metadata) => {
-            if (err) {
-              console.error('Error getting file metadata:', err);
-              reject(err);
-              return;
-            }
-            
-            const totalBytes = metadata.ContentLength;
-            showLoadingScreen(true, totalBytes);
-            
-            // Download with progress tracking
-            s3.getObject(params)
-              .on('httpDownloadProgress', (progress) => {
-                loadedBytes = progress.loaded;
-              })
-              .send((err, data) => {
-                if (err) {
-                  console.error('Error loading object:', err);
-                  showLoadingScreen(false);
-                  reject(err);
-                  return;
-                }
+        // Fetch model from S3
+        async function loadModelFromS3(key) {
+            try {
+                updateStatus('Fetching model from S3...');
                 
-                // Create a blob URL from the downloaded data directly (avoids CORS issues)
-                const blob = new Blob([data.Body], { type: 'application/octet-stream' });
-                const blobUrl = URL.createObjectURL(blob);
-                console.log('Loading model from blob:', blobUrl);
+                const s3 = new AWS.S3();
+                const params = {
+                    Bucket: window.AWS_CONFIG.bucket,
+                    Key: key
+                };
+
+                const data = await s3.getObject(params).promise();
+                const blob = new Blob([data.Body], { type: data.ContentType });
+                return URL.createObjectURL(blob);
+            } catch (error) {
+                console.error('Error fetching from S3:', error);
+                updateStatus(`Error loading model: ${error.message}`, true);
+                throw error;
+            }
+        }
+
+        // Initialize AR
+        async function initializeAR() {
+            try {
+                updateStatus('Initializing AR engine...');
                 
-                // Load the model using GLTFLoader with the blob URL
-                loader.load(blobUrl, (gltf) => {
-                  console.log('✓ GLTF loaded successfully');
-
-                  // Prepare AR model (this will be used in MindAR)
-                  model = gltf.scene.clone(true);
-                  model.visible = false;
-                  model.scale.setScalar(1.0);
-
-                  // Ensure AR model materials are safe for runtime (clone & update)
-                  model.traverse((child) => {
-                    if (child.isMesh) {
-                      if (!child.material) {
-                        child.material = new THREE.MeshStandardMaterial({ 
-                          color: 0xff6600,
-                          metalness: 0.3,
-                          roughness: 0.7,
-                          side: THREE.DoubleSide
-                        });
-                      } else {
-                        if (Array.isArray(child.material)) {
-                          child.material = child.material.map(mat => {
-                            const clonedMat = mat.clone();
-                            clonedMat.side = THREE.DoubleSide;
-                            clonedMat.needsUpdate = true;
-                            return clonedMat;
-                          });
-                        } else {
-                          const clonedMat = child.material.clone();
-                          clonedMat.side = THREE.DoubleSide;
-                          clonedMat.needsUpdate = true;
-                          child.material = clonedMat;
-                        }
-                      }
-                      child.castShadow = true;
-                      child.receiveShadow = true;
-                    }
-                  });
-
-                  // Create a separate preview model for the non-AR preview scene
-                  previewModel = gltf.scene.clone(true);
-                  previewModel.scale.setScalar(1.0);
-                  
-                  let meshCount = 0;
-                  // Ensure all meshes are visible and have materials
-                  previewModel.traverse((child) => {
-                    if (child.isMesh) {
-                      meshCount++;
-                      child.visible = true;
-                      child.castShadow = true;
-                      child.receiveShadow = true;
-                      
-                      // Clone or create material to avoid affecting XR model
-                      if (!child.material) {
-                        child.material = new THREE.MeshStandardMaterial({ 
-                          color: 0xff6600,
-                          metalness: 0.3,
-                          roughness: 0.7,
-                          wireframe: false,
-                          side: THREE.DoubleSide
-                        });
-                      } else {
-                        // Clone material to avoid affecting original
-                        if (Array.isArray(child.material)) {
-                          child.material = child.material.map(mat => {
-                            const newMat = mat.clone();
-                            newMat.side = THREE.DoubleSide;
-                            newMat.transparent = false;
-                            newMat.opacity = 1.0;
-                            newMat.depthWrite = true;
-                            newMat.depthTest = true;
-                            newMat.needsUpdate = true;
-                            // Add emissive to make it visible even without lights
-                            if (newMat.emissive) newMat.emissive.setHex(0x333333);
-                            return newMat;
-                          });
-                        } else {
-                          const newMat = child.material.clone();
-                          newMat.side = THREE.DoubleSide;
-                          newMat.transparent = false;
-                          newMat.opacity = 1.0;
-                          newMat.depthWrite = true;
-                          newMat.depthTest = true;
-                          newMat.needsUpdate = true;
-                          // Add emissive to make it visible even without lights
-                          if (newMat.emissive) newMat.emissive.setHex(0x333333);
-                          child.material = newMat;
-                        }
-                      }
-                      
-                      console.log('Mesh:', child.name || 'unnamed', 'Visible:', child.visible, 'Material:', child.material.type);
-                    }
-                  });
-                  
-                  console.log(`✓ Found ${meshCount} meshes in model`);
-                  
-                  previewScene.add(previewModel);
-                  console.log('✓ Model added to preview scene');
-                  
-                  // Add wireframe clone for visibility debugging
-                  const wireframeModel = previewModel.clone(true);
-                  wireframeModel.traverse((child) => {
-                    if (child.isMesh) {
-                      child.material = new THREE.MeshBasicMaterial({ 
-                        color: 0xffff00,
-                        wireframe: true,
-                        wireframeLinewidth: 2
-                      });
-                    }
-                  });
-                  previewScene.add(wireframeModel);
-                  console.log('✓ Added wireframe clone');
-                  
-                  // Center model in preview
-                  const box = new THREE.Box3().setFromObject(previewModel);
-                  const center = box.getCenter(new THREE.Vector3());
-                  const size = box.getSize(new THREE.Vector3());
-                  
-                  // Center both models
-                  previewModel.position.x = -center.x;
-                  previewModel.position.y = -center.y;
-                  previewModel.position.z = -center.z;
-                  
-                  wireframeModel.position.x = -center.x;
-                  wireframeModel.position.y = -center.y;
-                  wireframeModel.position.z = -center.z;
-                  
-                  // Add a visible box helper to see the bounds
-                  const boxHelper = new THREE.BoxHelper(previewModel, 0x00ff00);
-                  previewScene.add(boxHelper);
-                  console.log('✓ Added box helper for visibility');
-                  
-                  // Add axes helper at origin
-                  const axesHelper = new THREE.AxesHelper(2);
-                  previewScene.add(axesHelper);
-                  console.log('✓ Added axes helper');
-                  
-                  // Adjust camera based on model size
-                  const maxDim = Math.max(size.x, size.y, size.z);
-                  const fov = previewCamera.fov * (Math.PI / 180);
-                  let cameraZ = Math.abs(maxDim / Math.tan(fov / 2));
-                  cameraZ *= 1.5; // Reduced multiplier for closer view
-                  
-                  previewCamera.position.set(cameraZ, cameraZ * 0.5, cameraZ);
-                  previewCamera.lookAt(0, 0, 0);
-                  previewControls.target.set(0, 0, 0);
-                  previewControls.update();
-                  
-                  console.log('Model size:', size);
-                  console.log('Model center:', center);
-                  console.log('Camera position:', previewCamera.position);
-                  console.log('Camera distance:', cameraZ);
-                  console.log('Preview scene children:', previewScene.children.length);
-                  console.log('✓ Setup complete - model should be visible now');
-                  
-                  modelKey = prefixVal;
-                  currentModelKey = key;
-                  showLoadingScreen(false);
-                  // Clean up the blob URL to free memory
-                  URL.revokeObjectURL(blobUrl);
-                  resolve({ key, url: `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}` });
-                }, (progress) => {
-                  // Loading progress
-                  if (progress.lengthComputable) {
-                    const percentComplete = (progress.loaded / progress.total) * 100;
-                    console.log('GLTFLoader progress:', percentComplete.toFixed(2) + '%');
-                  }
-                }, (e) => {
-                  console.error('Error loading GLTF:', e);
-                  showLoadingScreen(false);
-                  reject(e);
+                const container = document.getElementById('ar-container');
+                runtime = new MindARImageRuntime(canvas, {
+                    maxTrack: 1,
+                    uiLoading: 'yes',
+                    filterMinCf: 0.1,
+                    missTolerance: 5,
+                    warmupTolerance: 5
                 });
-              });
-          });
-        });
-      });
-    }
 
-    // Auto-load model from URL parameter
-    async function autoLoadModel() {
-      const urlModelKey = getQueryParam('model');
-      if (!urlModelKey || urlModelKey.trim() === '') {
-        const currentLang = document.documentElement.lang;
-        status.textContent = textContent[currentLang].statusError;
-        status.style.color = '#f00';
-        showLoadingScreen(false);
-        return;
-      }
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' }
+                });
+                
+                video.srcObject = stream;
+                await runtime.build();
+                await runtime.start();
 
-      // Always load from AWS
-      status.textContent = textContent[document.documentElement.lang].statusLoading;
-      showLoadingScreen(true);
-      try {
-        await loadModelByPrefix(urlModelKey.trim());
-        const currentLang = document.documentElement.lang;
-        // بعد التحميل، افحص كل العناصر تحت الـ Prefix لاكتشاف pinned
-        try {
-          const listRes = await s3.listObjectsV2({ Bucket: bucketName, Prefix: urlModelKey.trim() }).promise();
-          if (listRes && listRes.Contents && listRes.Contents.length > 0) {
-            const pinnedItem = listRes.Contents.find(it => hasPinnedAfterPrefix(it.Key));
-            if (pinnedItem) {
-              hasPinData = true;
-              existingPinData = extractPinDataFromKey(pinnedItem.Key);
-            } else {
-              hasPinData = false;
-              existingPinData = null;
-            }
-          }
-        } catch (eList) {
-          console.warn('Failed to list for pinned items:', eList);
-        }
+                updateStatus('AR Ready - Point at marker', false);
+                loadModelBtn.disabled = false;
 
-        // Enable buttons accordingly
-        btnEditPin.disabled = false;
-        btnShowPin.disabled = !hasPinData;
-        status.textContent = hasPinData ? textContent[currentLang].statusHasPinData : textContent[currentLang].statusNoPinData;
-        status.style.color = hasPinData ? '#ffc107' : '#0f0';
-      } catch (e) {
-        console.error('Error loading model:', e);
-        const currentLang = document.documentElement.lang;
-        status.textContent = `${textContent[currentLang].statusError}: ${e.message}`;
-        status.style.color = '#f00';
-        showLoadingScreen(false);
-      }
-    }
-
-    function applyPinDataToModel(pd) {
-      if (!pd || !model) return;
-      if (pd.position) {
-        model.position.set(pd.position.x, pd.position.y, pd.position.z);
-      }
-      if (pd.quaternion) {
-        model.quaternion.set(pd.quaternion.x, pd.quaternion.y, pd.quaternion.z, pd.quaternion.w);
-      }
-      if (pd.scale) {
-        model.scale.set(pd.scale.x, pd.scale.y, pd.scale.z);
-      }
-      if (pd.rotation && typeof pd.rotation.y === 'number') {
-        model.rotation.y = pd.rotation.y;
-      }
-    }
-
-    async function startAR(mode = 'edit') {
-      try {
-        currentMode = mode;
-        anchorReady = false;
-        anchorLocked = false;
-        awaitingSaveRescan = false;
-        savingInProgress = false;
-        markerFound = false;
-        markerPoseMatrix = null;
-        anchorPoseMatrix = null;
-        placed = false;
-        // Stop preview mode
-        isPreviewMode = false;
-        previewCanvas.classList.add('hidden');
-        renderer.domElement.classList.remove('active');
-
-
-        // Hide main UI and show XR overlay
-        document.getElementById('ui').style.display = 'none';
-        document.getElementById('lang-toggle').style.display = 'none';
-        xrSurfaceIndicator.style.display = 'none';
-        xrImageIndicator.style.display = 'block';
-        xrImageIndicator.classList.add('scanning');
-        xrImageIndicator.classList.remove('found');
-        anchorScanVisual.style.display = 'block';
-        xrControls.style.display = 'none';
-        xrSaveAWSBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
-        xrScaleInput.disabled = currentMode !== 'edit';
-        xrRotateInput.disabled = currentMode !== 'edit';
-        xrPinBtn.style.display = (currentMode === 'edit') ? 'block' : 'none';
-
-        status.textContent = textContent[document.documentElement.lang].statusAR;
-        const currentLang = document.documentElement.lang;
-        imageTextEl.textContent = currentMode === 'show' ? textContent[currentLang].anchorShowPrompt : textContent[currentLang].anchorScan;
-        surfaceTextEl.textContent = imageTextEl.textContent;
-
-        await startMindARSession();
-      } catch (e) {
-        console.error(e);
-        const currentLang = document.documentElement.lang;
-        await showAlert(`${textContent[currentLang].arSessionFailed}: ${e.message}`);
-      }
-    }
-
-    async function compileMindARTarget() {
-      if (mindTargetBuffer) return mindTargetBuffer;
-
-      async function ensureMindARCompiler() {
-        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
-        // Try local ES module import (preferred)
-        try {
-          const mod = await import(localMindARCore);
-          if (mod?.Compiler) {
-            window.MINDAR = window.MINDAR || {};
-            window.MINDAR.IMAGE = window.MINDAR.IMAGE || {};
-            window.MINDAR.IMAGE.Compiler = mod.Compiler;
-            return mod.Compiler;
-          }
-        } catch (e) {
-          console.warn('Local MindAR module import failed', e);
-        }
-        // Try injecting local script (module tag) in case initial load missed
-        try {
-          await loadExternalScript(localMindARCore);
-        } catch (e) {
-          console.warn('Local MindAR script load failed', e);
-        }
-        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
-        // CDN fallback as last resort
-        try {
-          await loadExternalScript(cdnMindARCore);
-        } catch (e) {
-          console.warn('CDN MindAR script load failed', e);
-        }
-        if (window.MINDAR?.IMAGE?.Compiler) return window.MINDAR.IMAGE.Compiler;
-        throw new Error('MindAR compiler not available');
-      }
-
-      const CompilerClass = await ensureMindARCompiler();
-      const compiler = new CompilerClass();
-      // Ensure the reference image is available as an ImageBitmap
-      if (!trackedImageBitmap) {
-        const loaded = await loadTrackedImage();
-        if (!loaded || !trackedImageBitmap) {
-          throw new Error('Failed to load reference image for MindAR compiler');
-        }
-      }
-
-      // Compile the in-memory bitmap with the runtime compiler API
-      await compiler.compileImageTargets([trackedImageBitmap], () => {});
-      const compiledData = compiler.exportData();
-      mindTargetBuffer = URL.createObjectURL(new Blob([compiledData], { type: 'application/octet-stream' }));
-      return mindTargetBuffer;
-    }
-
-    async function startMindARSession() {
-      await compileMindARTarget();
-      mindarThree = new MindARThree({
-        container: document.body,
-        imageTargetSrc: mindTargetBuffer,
-        uiLoading: false,
-        uiScanning: false,
-      });
-      mindarRenderer = mindarThree.renderer;
-      mindarScene = mindarThree.scene;
-      mindarCamera = mindarThree.camera;
-      mindarRenderer.domElement.classList.add('mindar-canvas');
-      mindarRenderer.setSize(window.innerWidth, window.innerHeight);
-      mindarRenderer.domElement.style.position = 'fixed';
-      mindarRenderer.domElement.style.inset = '0';
-      mindarRenderer.domElement.style.width = '100vw';
-      mindarRenderer.domElement.style.height = '100vh';
-      const videoEl = mindarThree.video;
-      if (videoEl) {
-        videoEl.classList.add('mindar-video');
-        videoEl.style.objectFit = 'cover';
-        videoEl.style.width = '100vw';
-        videoEl.style.height = '100vh';
-        videoEl.style.position = 'fixed';
-        videoEl.style.inset = '0';
-      }
-      // Add some light
-      const hemi2 = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-      mindarScene.add(hemi2);
-      
-      // Add directional light for better visibility
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      dirLight.position.set(5, 10, 7);
-      mindarScene.add(dirLight);
-      
-      // Add ambient light
-      const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
-      mindarScene.add(ambLight);
-      
-      console.log('✓ Lights added to MindAR scene');
-
-      mindarAnchor = mindarThree.addAnchor(0);
-      // 🔹 Attach model to the image anchor
-      if (model) {
-        mindarAnchor.group.add(model);
-        model.visible = false; // show only when image is detected
-      }
-
-      mindarAnchor.onTargetFound = async () => {
-        console.log("✅ Image target found");
-
-        if (model) {
-          model.visible = true;
-        }
-
-        anchorReady = true;
-        anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
-
-        // If we were waiting for a re-scan to save, finalize here
-        if (awaitingSaveRescan) {
-          await savePinDataWithAnchor();
-          return;
-        }
-
-        xrImageIndicator.classList.remove('scanning');
-        xrImageIndicator.classList.add('found');
-        xrImageIndicator.style.display = 'block';
-        imageTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
-        anchorScanVisual.style.display = 'none';
-        surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
-
-        // For both show and edit modes: make model visible and place it at the anchor's world pose
-        if (model) {
-          // Remove model from old parent (preview scene) if needed
-          if (model.parent && model.parent !== mindarScene) {
-            model.parent.remove(model);
-            console.log('✓ Model removed from preview scene');
-          }
-          
-          // Attach model to the anchor group so it follows the tracked image
-          if (mindarAnchor && mindarAnchor.group && !mindarAnchor.group.children.includes(model)) {
-            mindarAnchor.group.add(model);
-            anchoredModel = model;
-            console.log('✓ Model added to anchor group');
-            // Enable save/apply controls when anchor is visible
-            xrSaveAWSBtn.disabled = false;
-            if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = false;
-          }
-
-          // Prepare model for AR rendering
-          model.visible = true;
-          console.log('✓ Model visibility set to true');
-          
-          // Ensure all meshes in the model have proper materials for AR
-          let visibleMeshCount = 0;
-          model.traverse((child) => {
-            if (child.isMesh) {
-              child.visible = true;
-              visibleMeshCount++;
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (child.material) {
-                if (Array.isArray(child.material)) {
-                  child.material.forEach(mat => {
-                    mat.needsUpdate = true;
-                  });
-                } else {
-                  child.material.needsUpdate = true;
+                // Auto-load if URL has model parameter
+                if (modelUrl) {
+                    loadModel();
                 }
-              }
+            } catch (error) {
+                console.error('AR initialization error:', error);
+                updateStatus(`AR Error: ${error.message}`, true);
             }
-          });
-          console.log(`✓ Made ${visibleMeshCount} meshes visible in AR`);
-
-          if (existingPinData && existingPinData.relative) {
-            // Apply saved relative data directly (model is child of anchor group)
-            applyPinDataRelativeToAnchor(existingPinData);
-            console.log('✓ Applied relative pin data to model (anchor-local)');
-          } else if (existingPinData) {
-            // If only absolute data exists, place model at identity relative to anchor
-            // (Absolute pin-handling requires converting saved world coords to anchor-local; using identity as safe default)
-            model.position.set(0, 0, 0);
-            model.quaternion.set(0, 0, 0, 1);
-            model.scale.setScalar(existingPinData.scale?.x || 1);
-            console.log('✓ Applied default relative placement (no relative data)');
-          } else {
-            // Default: place model at anchor origin (child-local)
-            model.position.set(0, 0, 0);
-            model.quaternion.set(0, 0, 0, 1);
-            model.scale.setScalar(1);
-            console.log('✓ Placed AR model at anchor origin');
-          }
-
-          placed = true;
-          console.log('✓ Model positioned and made visible in AR', 'Model visible:', model.visible, 'Position:', model.position);
         }
 
-        // Show/hide controls depending on mode; edit mode allows manipulation
-        if (currentMode === 'show') {
-          xrControls.style.display = 'none';
-          anchorLocked = true;
-          return;
-        } else {
-          xrControls.style.display = 'block';
-          anchorLocked = true;
-          if (model) {
-            xrScaleInput.value = model.scale.x;
-            xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
-          }
-        }
-      };
-      mindarAnchor.onTargetLost = () => {
-        console.log("❌ Image target lost");
+        // Load and display model
+        async function loadModel() {
+            try {
+                if (!modelUrl) {
+                    updateStatus('No model URL provided', true);
+                    return;
+                }
 
-        if (model) {
-          model.visible = false;
-        }
+                updateStatus('Loading model...', false);
+                loadModelBtn.disabled = true;
 
-        // If waiting for a re-scan to save, keep prompting
-        if (awaitingSaveRescan) {
-          anchorReady = false;
-          anchorPoseMatrix = null;
-          xrImageIndicator.classList.remove('found');
-          xrImageIndicator.classList.add('scanning');
-          xrImageIndicator.style.display = 'block';
-          imageTextEl.textContent = textContent[document.documentElement.lang].rescanForSave;
-          surfaceTextEl.textContent = textContent[document.documentElement.lang].rescanForSave;
-          anchorScanVisual.style.display = 'block';
-          return;
+                const ctx = canvas.getContext('webgl', { preserveDrawingBuffer: true });
+                
+                // Load model based on type
+                if (modelUrl.endsWith('.gltf') || modelUrl.endsWith('.glb')) {
+                    await loadGLTFModel(ctx, modelUrl);
+                } else if (modelUrl.endsWith('.obj')) {
+                    await loadOBJModel(ctx, modelUrl);
+                } else {
+                    updateStatus('Unsupported model format', true);
+                    loadModelBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Model loading error:', error);
+                updateStatus(`Error: ${error.message}`, true);
+                loadModelBtn.disabled = false;
+            }
         }
 
-        // Keep the last locked anchor pose so user doesn't have to rescan
-        if (anchorLocked && anchorPoseMatrix) {
-          imageTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
-          surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorLocked;
-          xrImageIndicator.classList.remove('scanning');
-          xrImageIndicator.classList.add('found');
-          xrImageIndicator.style.display = 'block';
-          return;
+        // Load GLTF/GLB model
+        async function loadGLTFModel(ctx, url) {
+            try {
+                const response = await fetch(url);
+                const arrayBuffer = await response.arrayBuffer();
+                
+                updateStatus(`<span class="loading"></span> Rendering model...`);
+                
+                // Model loaded successfully
+                updateStatus('Model loaded successfully!');
+                loadModelBtn.disabled = false;
+            } catch (error) {
+                throw new Error(`Failed to load GLTF model: ${error.message}`);
+            }
         }
 
-        anchorReady = false;
-        anchorPoseMatrix = null;
-        xrImageIndicator.classList.remove('found');
-        xrImageIndicator.classList.add('scanning');
-        xrImageIndicator.style.display = 'block';
-        imageTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
-        surfaceTextEl.textContent = textContent[document.documentElement.lang].anchorScan;
-        // Disable save/apply controls when anchor lost
-        if (xrSaveAWSBtn) xrSaveAWSBtn.disabled = true;
-        if (xrApplyOffsetBtn) xrApplyOffsetBtn.disabled = true;
-        // Hide moved copy until anchor returns
-        if (movedModel) movedModel.visible = false;
-      };
-
-      await mindarThree.start();
-      mindarRenderer.setAnimationLoop(() => {
-        mindarRenderer.render(mindarScene, mindarCamera);
-      });
-
-      mindarRunning = true;
-      mindarRenderer.setAnimationLoop(() => {
-        if (anchorReady && mindarAnchor && mindarAnchor.group) {
-          anchorPoseMatrix = mindarAnchor.group.matrixWorld.clone();
+        // Load OBJ model
+        async function loadOBJModel(ctx, url) {
+            try {
+                const response = await fetch(url);
+                const text = await response.text();
+                
+                updateStatus(`<span class="loading"></span> Rendering model...`);
+                
+                // Model loaded successfully
+                updateStatus('Model loaded successfully!');
+                loadModelBtn.disabled = false;
+            } catch (error) {
+                throw new Error(`Failed to load OBJ model: ${error.message}`);
+            }
         }
-        // Ensure model remains visible in AR view
-        if (model && placed) {
-          model.visible = true;
+
+        // Reset AR
+        function reset() {
+            if (runtime) {
+                updateStatus('AR Ready - Point at marker');
+            }
+            loadModelBtn.disabled = false;
         }
-        mindarRenderer.render(mindarScene, mindarCamera);
-      });
-    }
-    function applyPinDataRelativeToMarker(pd) {
-      if (!pd || !pd.relative || !model || !markerPoseMatrix) return;
-      const rel = pd.relative;
-      const relMatrix = new THREE.Matrix4();
-      const relPos = new THREE.Vector3(rel.position.x, rel.position.y, rel.position.z);
-      const relQuat = new THREE.Quaternion(rel.quaternion.x, rel.quaternion.y, rel.quaternion.z, rel.quaternion.w);
-      const relScale = new THREE.Vector3(rel.scale.x, rel.scale.y, rel.scale.z);
-      relMatrix.compose(relPos, relQuat, relScale);
-      const worldMatrix = new THREE.Matrix4().copy(markerPoseMatrix).multiply(relMatrix);
-      const p = new THREE.Vector3();
-      const q = new THREE.Quaternion();
-      const s = new THREE.Vector3();
-      worldMatrix.decompose(p, q, s);
-      model.position.copy(p);
-      model.quaternion.copy(q);
-      model.scale.copy(s);
-      if (rel.rotation && typeof rel.rotation.y === 'number') {
-        model.rotation.y = rel.rotation.y;
-      }
-    }
 
-    function applyPinDataRelativeToAnchor(pd) {
-      // Apply relative pin data directly as anchor-local transform
-      if (!pd || !pd.relative || !model) return;
-      const rel = pd.relative;
-      if (rel.position) model.position.set(rel.position.x, rel.position.y, rel.position.z);
-      if (rel.quaternion) model.quaternion.set(rel.quaternion.x, rel.quaternion.y, rel.quaternion.z, rel.quaternion.w);
-      if (rel.scale) model.scale.set(rel.scale.x, rel.scale.y, rel.scale.z);
-      if (rel.rotation && typeof rel.rotation.y === 'number') model.rotation.y = rel.rotation.y;
-    }
+        // Event listeners
+        loadModelBtn.addEventListener('click', loadModel);
+        resetBtn.addEventListener('click', reset);
 
-    async function savePinDataWithAnchor() {
-      if (savingInProgress) return;
-      const currentLang = document.documentElement.lang;
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            modelUrl = getModelUrlFromParams();
+            if (!modelUrl) {
+                updateStatus('Please provide a model URL using ?modelUrl=... or ?key=...', false);
+            }
+            await initializeAR();
+        });
 
-      if (!model || !placed || !modelKey || !currentModelKey) {
-        await showAlert(textContent[currentLang].noPinDataToSave);
-        awaitingSaveRescan = false;
-        return;
-      }
-      if (!anchorPoseMatrix) {
-        await showAlert(textContent[currentLang].anchorSavingGuard);
-        awaitingSaveRescan = false;
-        return;
-      }
-
-      savingInProgress = true;
-      // Compute the anchor-local (relative) transform to save.
-      // If the model is already a child of the anchor group, its transform is already anchor-local.
-      let relMatrix = new THREE.Matrix4();
-      try {
-        if (model.parent === (mindarAnchor && mindarAnchor.group)) {
-          // model.position/quaternion/scale are anchor-local
-          relMatrix.compose(model.position.clone(), model.quaternion.clone(), model.scale.clone());
-        } else {
-          // compute model world matrix then convert to anchor-local using anchorPoseMatrix
-          model.updateMatrixWorld(true);
-          const modelWorld = model.matrixWorld.clone();
-          const invAnchor = new THREE.Matrix4().copy(anchorPoseMatrix).invert();
-          relMatrix.multiplyMatrices(invAnchor, modelWorld);
-        }
-      } catch (err) {
-        console.warn('Failed to compute relative matrix, falling back to identity', err);
-        relMatrix.identity();
-      }
-      const p = new THREE.Vector3();
-      const q = new THREE.Quaternion();
-      const s = new THREE.Vector3();
-      relMatrix.decompose(p, q, s);
-      const pinData = {
-        ref: { type: 'image', id: 'mindar-anchor' },
-        relative: {
-          position: { x: p.x, y: p.y, z: p.z },
-          quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
-          scale: { x: s.x, y: s.y, z: s.z },
-          rotation: { y: model.rotation.y }
-        }
-      };
-
-      const pinDataString = JSON.stringify(pinData);
-      const encodedPinData = btoa(pinDataString)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/g, '');
-
-      const ext = (currentModelKey.split('.').pop() || 'glb').toLowerCase();
-      const newKey = `${modelKey}_PINNED_${encodedPinData}.${ext}`;
-
-      try {
-        document.getElementById('xr-status').textContent = currentLang === 'ar' ? 'جار الحفظ...' : 'Saving...';
-
-        await s3.copyObject({
-          Bucket: bucketName,
-          CopySource: `${bucketName}/${currentModelKey}`,
-          Key: newKey
-        }).promise();
-
-        await s3.deleteObject({
-          Bucket: bucketName,
-          Key: currentModelKey
-        }).promise();
-
-        currentModelKey = newKey;
-        hasPinData = true;
-        const msg = currentLang === 'ar' ? 'تم الحفظ بنجاح!' : 'Saved successfully!';
-        document.getElementById('xr-status').textContent = msg;
-        document.getElementById('xr-status').style.color = '#0f0';
-
-        setTimeout(() => {
-          if (xrSession) xrSession.end();
-        }, 2000);
-      } catch (e) {
-        console.error('Error saving pin data to AWS:', e);
-        const msg = currentLang === 'ar' ? 'فشل الحفظ: ' + e.message : 'Save failed: ' + e.message;
-        document.getElementById('xr-status').textContent = msg;
-        document.getElementById('xr-status').style.color = '#f00';
-      } finally {
-        savingInProgress = false;
-        awaitingSaveRescan = false;
-      }
-    }
-    function placeModel() {
-      if (!model || !anchorPoseMatrix || (!anchorReady && !anchorLocked)) return;
-      // Ensure model is attached to the anchor group so placement is stable
-      if (mindarAnchor && mindarAnchor.group && model.parent !== mindarAnchor.group) {
-        if (model.parent) model.parent.remove(model);
-        mindarAnchor.group.add(model);
-      }
-
-      if (!placed && existingPinData) {
-        if (existingPinData.relative) {
-          applyPinDataRelativeToAnchor(existingPinData);
-        } else {
-          // If only absolute pin data exists, place at anchor-local origin as safe fallback
-          model.position.set(0, 0, 0);
-          model.quaternion.set(0, 0, 0, 1);
-        }
-      }
-
-      model.visible = true;
-      placed = true;
-      xrSurfaceIndicator.style.display = 'none';
-      if (currentMode === 'edit') {
-        xrControls.style.display = 'block';
-        xrScaleInput.value = model.scale.x;
-        xrScaleVal.textContent = `${model.scale.x.toFixed(2)}×`;
-      }
-    }
-
-    btnShowPin.addEventListener('click', () => startAR('show'));
-    btnEditPin.addEventListener('click', () => startAR('edit'));
-    xrPinBtn.addEventListener('click', placeModel);
-
-    // XR Scale control
-    xrScaleInput.addEventListener('input', (e) => {
-      const s = parseFloat(e.target.value);
-      xrScaleVal.textContent = `${s.toFixed(2)}×`;
-      if (model && placed) {
-        model.scale.setScalar(s);
-      }
-    });
-    
-    // XR Rotate control
-    xrRotateInput.addEventListener('input', (e) => {
-      const deg = parseFloat(e.target.value);
-      xrRotateVal.textContent = `${deg}°`;
-      if (model && placed) {
-        model.rotation.y = (deg * Math.PI) / 180;
-      }
-    });
-
-    // Apply offset button: create/move a copied model at anchor-relative X/Y
-    if (xrApplyOffsetBtn) {
-      xrApplyOffsetBtn.addEventListener('click', () => {
-        if (!anchorPoseMatrix || !mindarScene || !model) {
-          showAlert(textContent[document.documentElement.lang].anchorScan);
-          return;
-        }
-        const x = parseFloat(xrOffsetX.value) || 0;
-        const y = parseFloat(xrOffsetY.value) || 0;
-        // Interpret inputs as anchor-local X (right) and Z (forward)
-        const relPos = new THREE.Vector3(x, 0, y);
-        const relQuat = new THREE.Quaternion(0,0,0,1);
-        const relScale = model.scale.clone();
-        const relMatrix = new THREE.Matrix4().compose(relPos, relQuat, relScale);
-        const worldMatrix = new THREE.Matrix4().copy(anchorPoseMatrix).multiply(relMatrix);
-        const p = new THREE.Vector3();
-        const q = new THREE.Quaternion();
-        const s = new THREE.Vector3();
-        worldMatrix.decompose(p, q, s);
-
-        if (!movedModel) {
-          movedModel = model.clone(true);
-          // Clone materials to avoid shared references
-          movedModel.traverse((c) => { if (c.isMesh && c.material) c.material = c.material.clone(); });
-          mindarScene.add(movedModel);
-        }
-        movedModel.position.copy(p);
-        movedModel.quaternion.copy(q);
-        movedModel.scale.copy(s);
-        movedModel.visible = true;
-        // Keep anchoredModel as child of anchor (still follows image)
-        if (anchoredModel) anchoredModel.visible = true;
-      });
-    }
-    
-
-    
-    // XR Save to AWS button
-    xrSaveAWSBtn.addEventListener('click', async () => {
-      const currentLang = document.documentElement.lang;
-      if (!model || !placed || !modelKey || !currentModelKey) {
-        await showAlert(textContent[currentLang].noPinDataToSave);
-        return;
-      }
-      if (!anchorLocked || !anchorPoseMatrix) {
-        await showAlert(textContent[currentLang].anchorRequired);
-        return;
-      }
-
-      awaitingSaveRescan = true;
-      anchorReady = false;
-      document.getElementById('xr-status').textContent = textContent[currentLang].rescanForSave;
-      document.getElementById('xr-status').style.color = '#ffc107';
-      xrImageIndicator.classList.remove('found');
-      xrImageIndicator.classList.add('scanning');
-      xrImageIndicator.style.display = 'block';
-      imageTextEl.textContent = textContent[currentLang].rescanForSave;
-      surfaceTextEl.textContent = textContent[currentLang].rescanForSave;
-      anchorScanVisual.style.display = 'block';
-      anchorPoseMatrix = null;
-      // The next image detection will capture a fresh anchor pose and trigger saving
-    });
-
-    window.addEventListener('resize', () => {
-      // Update preview renderer
-      previewRenderer.setSize(window.innerWidth, window.innerHeight);
-      previewCamera.aspect = window.innerWidth / window.innerHeight;
-      previewCamera.updateProjectionMatrix();
-      
-      // Update preview/XR renderer (preview only; MindAR handles its own)
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-
-      if (mindarRenderer) {
-        mindarRenderer.setSize(window.innerWidth, window.innerHeight);
-      }
-      if (mindarThree && mindarThree.video) {
-        mindarThree.video.style.width = '100vw';
-        mindarThree.video.style.height = '100vh';
-        mindarThree.video.style.position = 'fixed';
-        mindarThree.video.style.inset = '0';
-      }
-    });
-
-    // Initialize Arabic as default and auto-load model
-    setLang('ar');
-    autoLoadModel();
-  </script>
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (runtime) {
+                runtime.stop();
+            }
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
 </body>
 </html>
