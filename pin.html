@@ -201,24 +201,22 @@
         arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;"
         renderer="antialias: true; alpha: true; precision: medium;"
     >
-        <!-- Camera with geolocation -->
-        <a-camera 
-            gps-camera 
-            rotation-reader 
-            position="0 1.6 0"
-            look-at="[gps-entity-place]">
-        </a-camera>
+        <!-- Camera -->
+        <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
         <!-- 3D Model Entity -->
         <a-entity 
             id="model-entity"
-            gps-entity-place="latitude: 0; longitude: 0;"
+            position="0 0 -3"
             rotation="0 0 0"
             scale="1 1 1"
-            animation="property: rotation; to: 0 360 0; dur: 5000; loop: true"
         >
             <!-- Model will be loaded here -->
         </a-entity>
+
+        <!-- Light sources for better visibility -->
+        <a-light type="ambient" intensity="1.5" color="#fff"></a-light>
+        <a-light type="directional" intensity="1" color="#fff" position="5 10 7"></a-light>
 
         <!-- Sky for AR background -->
         <a-sky color="#87CEEB"></a-sky>
@@ -331,22 +329,9 @@
 
         // Set model location (offset from user)
         function setModelLocation() {
+            // Model is now positioned at a fixed distance from camera (0 0 -3)
+            // This provides better visibility in AR.js
             if (!userLocation) return;
-            
-            // Place model ~20 meters ahead
-            const offsetLat = userLocation.latitude + 0.0002;
-            const offsetLon = userLocation.longitude + 0.0002;
-            
-            modelLocation = {
-                latitude: offsetLat,
-                longitude: offsetLon
-            };
-
-            const modelEntity = document.getElementById('model-entity');
-            if (modelEntity) {
-                modelEntity.setAttribute('gps-entity-place', `latitude: ${modelLocation.latitude}; longitude: ${modelLocation.longitude}`);
-            }
-
             updateDistanceAndBearing();
         }
 
@@ -453,19 +438,34 @@
             // Create and append GLTF model
             const gltfModel = document.createElement('a-gltf-model');
             gltfModel.setAttribute('src', url);
-            gltfModel.setAttribute('scale', '1 1 1');
+            gltfModel.setAttribute('scale', '1.5 1.5 1.5');
             gltfModel.setAttribute('rotation', '0 0 0');
+            gltfModel.setAttribute('animation', 'property: rotation; from: 0 0 0; to: 0 360 0; dur: 4000; loop: true');
             
             gltfModel.addEventListener('loaded', () => {
                 console.log('Model loaded successfully');
+                
+                // Get the model's bounding box to auto-center
+                const modelObject3D = gltfModel.getObject3D('mesh');
+                if (modelObject3D) {
+                    // Center the model
+                    const box = new THREE.Box3().setFromObject(modelObject3D);
+                    const center = box.getCenter(new THREE.Vector3());
+                    modelObject3D.position.sub(center);
+                    
+                    console.log('Model size:', box.getSize(new THREE.Vector3()));
+                }
+                
                 loadingScreen.style.display = 'none';
                 modelLoaded = true;
-                setModelLocation();
+                
+                // Update UI
+                updateDistanceAndBearing();
             });
 
             gltfModel.addEventListener('error', (event) => {
                 console.error('Error loading model:', event);
-                loadingText.textContent = 'Error: Could not load 3D model';
+                loadingText.textContent = 'Error: Could not load 3D model. Check console.';
             });
 
             modelEntity.appendChild(gltfModel);
