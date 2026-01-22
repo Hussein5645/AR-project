@@ -7,6 +7,7 @@
     <title>AR Model Viewer - WebXR</title>
     <script src="aws-config.js"></script>
     <script src="lib/babylon/babylon.js"></script>
+    <script src="lib/babylon/babylon.loaders.js"></script>
     <script src="lib/babylon/babylon.gui.min.js"></script>
     <style>
         * {
@@ -80,9 +81,7 @@
         if (!BABYLON.GUI) {
             console.error('Babylon GUI library failed to load');
         }
-        if (!BABYLON.ImportMeshAsync) {
-            console.error('Babylon Loaders library failed to load');
-        }
+        // Note: ImportMeshAsync will be available when needed, no need to check here
 
         let createScene = async function () {
 
