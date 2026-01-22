@@ -6,8 +6,9 @@
     <title>AR Model Viewer</title>
     
     <!-- AR.js and A-Frame -->
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/aframe-ar.js"></script>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src='https://raw.githack.com/AR-js-org/AR.js/3.4.7/three.js/build/ar-threex-location-only.js'></script>
+    <script src='https://raw.githack.com/AR-js-org/AR.js/3.4.7/aframe/build/aframe-ar.js'></script>
     
     <!-- AWS SDK for S3 -->
     <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
@@ -189,15 +190,19 @@
     <div id="arContainer">
         <!-- A-Frame AR Scene -->
         <a-scene 
+            id="arScene"
             embedded 
-            arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best; videoTexturScale: 1.0;"
-            renderer="antialias: true; alpha: true; precision: mediump;"
             vr-mode-ui="false"
+            arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+            renderer="antialias: true; alpha: true; precision: mediump;"
         >
-            <!-- Camera -->
-            <a-camera position="0 1.6 0"></a-camera>
+            <!-- Surface-based Camera (for flat surface detection) -->
+            <a-camera id="surfaceCamera" position="0 1.6 0"></a-camera>
+            
+            <!-- Location-based Camera (for GPS) -->
+            <a-camera id="gpsCamera" gps-new-camera="gpsMinDistance: 5"></a-camera>
 
-            <!-- 3D Model Entity -->
+            <!-- 3D Model Entity (Surface-based) -->
             <a-entity 
                 id="model" 
                 gltf-model=""
@@ -206,6 +211,16 @@
                 rotation="0 0 0"
                 geometry="primitive: box; width: 0.1; height: 0.1; depth: 0.1"
                 material="color: #0084FF; opacity: 0.5"
+            ></a-entity>
+
+            <!-- 3D Model Entity (GPS-based) -->
+            <a-entity 
+                id="gpsModel"
+                gltf-model=""
+                scale="1 1 1"
+                rotation="0 0 0"
+                gps-new-entity-place=""
+                visible="false"
             ></a-entity>
 
             <!-- Placeholder for surface indicator -->
@@ -244,14 +259,12 @@
 
     <!-- Instructions Panel -->
     <div class="instructions">
-        <strong>AR Controls:</strong><br>
-        🔷 Hold phone flat to detect surface<br>
-        👆 Tap to place model<br>
-        <strong>Load Model:</strong><br>
-        ✓ Direct URL:<br>
-        pin.html?modelUrl=https://...<br>
-        ✓ S3 Key (AWS):<br>
-        pin.html?model=M9DPbKXz12
+        <strong>AR Modes:</strong><br>
+        🎯 <strong>Surface AR:</strong> Tap to place<br>
+        📍 <strong>GPS AR:</strong> Auto-placed<br>
+        <strong>URL Parameters:</strong><br>
+        Surface: ?modelUrl=https://...<br>
+        GPS: ?model=KEY&lat=XX&lon=YY
     </div>
 
     <!-- Error Message -->
@@ -259,6 +272,7 @@
 
     <!-- Controls -->
     <div class="ui-overlay">
+        <button id="mode-toggle-btn">🎯 Surface Mode</button>
         <button id="place-btn" disabled>📍 Place on Surface</button>
         
         <div class="control-group">
@@ -275,8 +289,8 @@
         <button id="reset-btn" disabled>🔄 Reset</button>
         <button id="screenshot-btn" disabled>📸 Screenshot</button>
 
-        <div class="controls-info">
-            Rotate device to move model • Use sliders for precise control
+        <div class="controls-info" id="mode-info">
+            Surface AR: Rotate device to move model
         </div>
     </div>
 
@@ -288,6 +302,10 @@
             minScale: 0.1,
             scaleStep: 0.1,
             placementDistance: 2,
+            modes: {
+                SURFACE: 'surface',
+                GPS: 'gps'
+            }
         };
 
         // ==================== State Management ====================
@@ -300,18 +318,27 @@
             surfaceDetected: false,
             currentScale: CONFIG.defaultScale,
             currentRotation: { x: 0, y: 0, z: 0 },
+            arMode: CONFIG.modes.SURFACE,
+            gpsLocation: { lat: null, lon: null },
+            hasGpsCoordinates: false,
         };
 
         // ==================== DOM Elements ====================
         const elements = {
+            arScene: document.getElementById('arScene'),
             model: document.getElementById('model'),
+            gpsModel: document.getElementById('gpsModel'),
+            surfaceCamera: document.getElementById('surfaceCamera'),
+            gpsCamera: document.getElementById('gpsCamera'),
             surfaceIndicator: document.getElementById('surface-indicator'),
+            modeToggleBtn: document.getElementById('mode-toggle-btn'),
             placeBtn: document.getElementById('place-btn'),
             scaleInput: document.getElementById('scale-input'),
             scaleValue: document.getElementById('scale-value'),
             rotateInput: document.getElementById('rotate-input'),
             resetBtn: document.getElementById('reset-btn'),
             screenshotBtn: document.getElementById('screenshot-btn'),
+            modeInfo: document.getElementById('mode-info'),
             cameraStatus: document.getElementById('camera-status'),
             cameraText: document.getElementById('camera-text'),
             modelStatus: document.getElementById('model-status'),
@@ -346,6 +373,19 @@
             }
 
             return null;
+        }
+
+        function getGPSCoordinatesFromParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const lat = parseFloat(urlParams.get('lat'));
+            const lon = parseFloat(urlParams.get('lon'));
+            
+            if (!isNaN(lat) && !isNaN(lon)) {
+                state.gpsLocation = { lat, lon };
+                state.hasGpsCoordinates = true;
+                return true;
+            }
+            return false;
         }
 
         async function fetchModelFromS3(modelPrefix) {
@@ -627,8 +667,69 @@
             }, 2000);
         }
 
+        // ==================== AR Mode Management ====================
+        function toggleARMode() {
+            if (!state.modelLoaded) {
+                showError('Model not loaded yet');
+                return;
+            }
+
+            if (state.arMode === CONFIG.modes.SURFACE) {
+                // Switch to GPS mode
+                if (!state.hasGpsCoordinates) {
+                    showError('GPS coordinates not provided.\n\nUse: ?lat=XX.XXXX&lon=YY.YYYY');
+                    return;
+                }
+                switchToGPSMode();
+            } else {
+                // Switch to Surface mode
+                switchToSurfaceMode();
+            }
+        }
+
+        function switchToSurfaceMode() {
+            state.arMode = CONFIG.modes.SURFACE;
+            
+            // Update UI
+            elements.modeToggleBtn.textContent = '🎯 Surface Mode';
+            elements.modeInfo.textContent = 'Surface AR: Rotate device to move model';
+            elements.placeBtn.style.display = 'block';
+            
+            // Switch cameras and models
+            elements.surfaceCamera.setAttribute('active', true);
+            elements.gpsCamera.setAttribute('active', false);
+            elements.model.setAttribute('visible', 'true');
+            elements.gpsModel.setAttribute('visible', 'false');
+            
+            console.log('✅ Switched to Surface AR mode');
+        }
+
+        function switchToGPSMode() {
+            state.arMode = CONFIG.modes.GPS;
+            
+            // Update UI
+            elements.modeToggleBtn.textContent = '📍 GPS Mode';
+            elements.modeInfo.textContent = `GPS AR: Placed at Lat: ${state.gpsLocation.lat.toFixed(4)}, Lon: ${state.gpsLocation.lon.toFixed(4)}`;
+            elements.placeBtn.style.display = 'none';
+            
+            // Switch cameras and models
+            elements.surfaceCamera.setAttribute('active', false);
+            elements.gpsCamera.setAttribute('active', true);
+            elements.model.setAttribute('visible', 'false');
+            elements.gpsModel.setAttribute('visible', 'true');
+            
+            // Set GPS coordinates
+            elements.gpsModel.setAttribute(
+                'gps-new-entity-place',
+                `latitude: ${state.gpsLocation.lat}; longitude: ${state.gpsLocation.lon}`
+            );
+            
+            console.log('📍 Switched to GPS AR mode:', state.gpsLocation);
+        }
+
         // ==================== Event Listeners ====================
         function setupEventListeners() {
+            elements.modeToggleBtn.addEventListener('click', toggleARMode);
             elements.placeBtn.addEventListener('click', placeModelOnSurface);
             
             elements.scaleInput.addEventListener('input', (e) => {
@@ -665,6 +766,13 @@
             initializeCamera();
             initializeTracking();
 
+            // Check for GPS coordinates
+            const hasGPS = getGPSCoordinatesFromParams();
+            if (hasGPS) {
+                elements.modeToggleBtn.disabled = false;
+                console.log('📍 GPS coordinates detected');
+            }
+
             // Get model URL from parameters (either direct URL or S3 key)
             try {
                 const modelUrl = await getModelUrlFromParams();
@@ -672,9 +780,16 @@
                 if (modelUrl) {
                     console.log('📦 Loading model from URL:', modelUrl);
                     await loadModel(modelUrl);
+                    
+                    // Auto-switch to GPS mode if coordinates available
+                    if (hasGPS) {
+                        setTimeout(() => {
+                            switchToGPSMode();
+                        }, 1000);
+                    }
                 } else {
                     updateStatus('model', false, 'Awaiting URL parameter');
-                    showError('No model URL or key provided.\n\nUsage:\npin.html?modelUrl=https://...\nor\npin.html?model=M9DPbKXz12');
+                    showError('No model URL or key provided.\n\nUsage:\npin.html?modelUrl=https://...\nor\npin.html?model=KEY&lat=XX&lon=YY');
                 }
             } catch (error) {
                 showError('Initialization error: ' + error.message);
