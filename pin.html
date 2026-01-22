@@ -7,7 +7,7 @@
     <title>AR Model Viewer - WebXR</title>
     <script src="aws-config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.loaders.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.49.0/babylon.loaders.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/babylonjs-gui@6.49.0/babylon.gui.min.js"></script>
     <style>
         * {
@@ -153,7 +153,12 @@
     }
 
     // Resolve model URL (same logic you already use)
-    let modelUrl = sessionStorage.getItem('currentModelUrl');
+    let modelUrl = null;
+    try {
+        modelUrl = sessionStorage.getItem('currentModelUrl');
+    } catch (e) {
+        console.warn('SessionStorage blocked by tracking prevention:', e.message);
+    }
 
     if (!modelUrl) {
         const modelKey = getQueryParam('model');
