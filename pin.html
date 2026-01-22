@@ -1,157 +1,316 @@
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
-  <meta charset="UTF-8" />
-  <title>Markerless Web AR</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR Model Viewer - WebXR</title>
+    <script src="aws-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs@6.x/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  <!-- A-Frame -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
 
-  <!-- AR.js with WebXR -->
-  <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
 
-  <!-- Gesture Detector -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe-gesture-detector@5.0.1/dist/aframe-gesture-detector.min.js"></script>
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #1a1a1a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
 
-  <style>
-    body { margin: 0; overflow: hidden; }
-  </style>
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        body[lang="ar"] {
+            direction: rtl;
+        }
+
+        body[lang="en"] {
+            direction: ltr;
+        }
+    </style>
 </head>
-
 <body>
-<a-scene
-  embedded
-  renderer="colorManagement: true;"
-  xr-mode-ui="enabled: true"
-  arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
->
+    <div id="loadingScreen">
+        <div class="spinner"></div>
+    </div>
+    <canvas id="renderCanvas"></canvas>
 
-  <!-- Camera -->
-  <a-camera
-    position="0 1.6 0"
-    look-controls="enabled: false"
-  ></a-camera>
+    <script>
+        // Initialize canvas and engine
+        const canvas = document.getElementById('renderCanvas');
+        const engine = new BABYLON.Engine(canvas, true);
 
-  <!-- Reticle -->
-  <a-entity
-    id="reticle"
-    geometry="primitive: ring; radiusInner: 0.05; radiusOuter: 0.06"
-    material="color: #00ffcc; shader: flat"
-    rotation="-90 0 0"
-    visible="false"
-  ></a-entity>
+        let createScene = async function () {
 
-  <!-- Model (hidden until placed) -->
-  <a-entity
-    id="ar-model"
-    visible="false"
-    scale="0.5 0.5 0.5"
-    gesture-handler
-  ></a-entity>
+    // This creates a basic Babylon Scene object (non-mesh)
+    var scene = new BABYLON.Scene(engine);
 
-</a-scene>
+    // This creates and positions a free camera (non-mesh)
+    var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 1, -5), scene);
 
-<!-- Gesture logic -->
-<script>
-AFRAME.registerComponent('gesture-handler', {
-  schema: { enabled: { default: true } },
-  init() {
-    this.el.sceneEl.addEventListener('onefingermove', e => {
-      this.el.object3D.rotation.y += e.detail.positionChange.x * 0.01;
-    });
+    // This targets the camera to scene origin
+    camera.setTarget(BABYLON.Vector3.Zero());
 
-    this.el.sceneEl.addEventListener('twofingermove', e => {
-      const scale = this.el.object3D.scale.x + e.detail.spreadChange / 200;
-      const clamped = Math.min(Math.max(scale, 0.1), 3);
-      this.el.object3D.scale.set(clamped, clamped, clamped);
-    });
-  }
-});
-</script>
+    // This attaches the camera to the canvas
+    camera.attachControl(canvas, true);
 
-<!-- Hit-test + tap placement -->
-<script>
-const scene = document.querySelector('a-scene');
-const reticle = document.getElementById('reticle');
-const model = document.getElementById('ar-model');
+    // AR availability check and GUI in non-AR mode
+    const arAvailable = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
 
-scene.addEventListener('enter-vr', async () => {
-  const xrSession = scene.renderer.xr.getSession();
-  const viewerSpace = await xrSession.requestReferenceSpace('viewer');
-  const hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
-  const refSpace = await xrSession.requestReferenceSpace('local');
+    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI(
+        "FullscreenUI"
+    );
 
-  scene.renderer.setAnimationLoop((time, frame) => {
-    if (!frame) return;
-    const hits = frame.getHitTestResults(hitTestSource);
+    const rectangle = new BABYLON.GUI.Rectangle("rect");
+    rectangle.background = "black";
+    rectangle.color = "blue";
+    rectangle.width = "80%";
+    rectangle.height = "50%";
 
-    if (hits.length > 0) {
-      const pose = hits[0].getPose(refSpace);
-      reticle.object3D.position.copy(pose.transform.position);
-      reticle.object3D.visible = true;
+    advancedTexture.addControl(rectangle);
+    const nonXRPanel = new BABYLON.GUI.StackPanel();
+    rectangle.addControl(nonXRPanel);
+
+    const text1 = new BABYLON.GUI.TextBlock("text1");
+    text1.fontFamily = "Helvetica";
+    text1.textWrapping = true;
+    text1.color = "white";
+    text1.fontSize = "14px";
+    text1.height = "400px"
+    text1.paddingLeft = "10px";
+    text1.paddingRight = "10px";
+ 
+    if (!arAvailable) {
+        text1.text = "AR is not available in your system. Please make sure you use a supported device such as a Meta Quest 3 or a modern Android device and a supported browser like Chrome.\n \n Make sure you have Google AR services installed and that you enabled the WebXR incubation flag under chrome://flags";
+        nonXRPanel.addControl(text1);
+        return scene;
     } else {
-      reticle.object3D.visible = false;
+        text1.text = "WebXR Demo: Hit test and depth sensing.\n \n Please enter AR with the button on the lower right corner to start. Once in AR, look at the floor for a few seconds (and move a little): the hit-testing ring will appear. Then click anywhere on the screen to place a model in your space.";
+        nonXRPanel.addControl(text1);
     }
-  });
-});
 
-// Tap to place
-scene.addEventListener('click', () => {
-  if (!reticle.object3D.visible) return;
+    // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
+    var light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
 
-  model.object3D.position.copy(reticle.object3D.position);
-  model.object3D.visible = true;
-});
-</script>
+    // Default intensity is 1. Let's dim the light a small amount
+    light.intensity = 0.7;
 
-<!-- ✅ YOUR MODEL LOADING LOGIC -->
-<script>
-function getQueryParam(name) {
-  const urlParams = new URLSearchParams(window.location.search);
-  return urlParams.get(name);
-}
+    var dirLight = new BABYLON.DirectionalLight('light', new BABYLON.Vector3(0, -1, -0.5), scene);
+    dirLight.position = new BABYLON.Vector3(0, 5, -5);
 
-document.addEventListener('DOMContentLoaded', () => {
-  const modelEntity = document.getElementById('ar-model');
+    var shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
+    shadowGenerator.useBlurExponentialShadowMap = true;
+    shadowGenerator.blurKernel = 32;
 
-  let modelUrl = sessionStorage.getItem('currentModelUrl');
-
-  if (!modelUrl) {
-    const modelKey = getQueryParam('model');
-    if (
-      modelKey &&
-      window.AWS_CONFIG &&
-      AWS_CONFIG.bucketName &&
-      AWS_CONFIG.region
-    ) {
-      modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-    } else if (modelKey) {
-      modelUrl = modelKey;
+    function getQueryParam(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
     }
-  }
 
-  if (modelUrl) {
-    modelEntity.setAttribute('gltf-model', modelUrl);
-  } else {
-    console.warn('No model URL found');
-  }
-});
-</script>
+    // Resolve model URL (same logic you already use)
+    let modelUrl = sessionStorage.getItem('currentModelUrl');
 
-<!-- Camera permission fallback: prompt getUserMedia to trigger camera access -->
-<script>
-if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-  navigator.mediaDevices.getUserMedia({ video: true })
-    .then(stream => {
-      stream.getTracks().forEach(t => t.stop());
-    })
-    .catch(err => {
-      console.warn('Camera permission denied or unavailable:', err);
+    if (!modelUrl) {
+        const modelKey = getQueryParam('model');
+
+        if (
+            modelKey &&
+            window.AWS_CONFIG &&
+            AWS_CONFIG.bucketName &&
+            AWS_CONFIG.region
+        ) {
+            modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+        } else if (modelKey) {
+            modelUrl = modelKey;
+        }
+    }
+
+    // Fallback safety
+    if (!modelUrl) {
+        console.warn("No model URL found, using default");
+        modelUrl = "./scenes/dummy3.babylon";
+    }
+
+    // 🔹 Babylon model loading (UNCHANGED API)
+    const model = await BABYLON.ImportMeshAsync(
+        "",
+        modelUrl.substring(0, modelUrl.lastIndexOf("/") + 1),
+        modelUrl.substring(modelUrl.lastIndexOf("/") + 1),
+        scene
+    );
+
+
+    const xr = await scene.createDefaultXRExperienceAsync({
+        uiOptions: {
+            sessionMode: 'immersive-ar'
+        },
+        inputOptions: {
+            doNotLoadControllerMeshes: true
+        },
+        handSupportOptions: {
+            handMeshes: {
+                disableDefaultMeshes: true,
+            },
+            jointMeshes: {
+                keepOriginalVisible: false,
+                invisible: true
+            }
+        }
     });
-} else {
-  console.warn('navigator.mediaDevices.getUserMedia not supported in this browser');
-}
-</script>
 
+    //Hide GUI in AR mode
+    xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
+        rectangle.isVisible = false;
+    })
+    xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
+        rectangle.isVisible = true;
+
+    })
+
+    // Enable the depth sensing module to hide the added models behind real-world objects
+    xr.baseExperience.featuresManager.enableFeature(
+        BABYLON.WebXRFeatureName.DEPTH_SENSING,
+        "latest",
+        {
+            dataFormatPreference: ["ushort", "float"],
+            usagePreference: ["cpu", "gpu"],
+        },
+    );
+
+    const fm = xr.baseExperience.featuresManager;
+
+    const xrTest = fm.enableFeature(BABYLON.WebXRHitTest.Name, "latest");
+    const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
+
+    fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
+
+    let b = model.meshes[0];
+    b.rotationQuaternion = new BABYLON.Quaternion();
+    shadowGenerator.addShadowCaster(b, true);
+
+    const marker = BABYLON.MeshBuilder.CreateTorus('marker', { diameter: 0.15, thickness: 0.05 });
+    marker.isVisible = false;
+    marker.rotationQuaternion = new BABYLON.Quaternion();
+
+    var skeleton = model.skeletons[0];
+
+    // ROBOT
+    skeleton.animationPropertiesOverride = new BABYLON.AnimationPropertiesOverride();
+    skeleton.animationPropertiesOverride.enableBlending = true;
+    skeleton.animationPropertiesOverride.blendingSpeed = 0.05;
+    skeleton.animationPropertiesOverride.loopMode = 1;
+
+    var idleRange = skeleton.getAnimationRange("YBot_Idle");
+    scene.beginAnimation(skeleton, idleRange.from, idleRange.to, true);
+
+    let hitTest;
+
+    b.isVisible = false;
+
+    xrTest.onHitTestResultObservable.add((results) => {
+        if (results.length) {
+            marker.isVisible = true;
+            hitTest = results[0];
+            hitTest.transformationMatrix.decompose(undefined, b.rotationQuaternion, b.position);
+            hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
+        } else {
+            marker.isVisible = false;
+            hitTest = undefined;
+        }
+    });
+    const mat1 = new BABYLON.StandardMaterial('1', scene);
+    mat1.diffuseColor = BABYLON.Color3.Red();
+    const mat2 = new BABYLON.StandardMaterial('1', scene);
+    mat2.diffuseColor = BABYLON.Color3.Blue();
+
+    if (anchors) {
+        anchors.onAnchorAddedObservable.add(anchor => {
+            b.isVisible = true;
+            anchor.attachedNode = b.clone("mensch");
+            anchor.attachedNode.skeleton = skeleton.clone('skelet');
+            shadowGenerator.addShadowCaster(anchor.attachedNode, true);
+            scene.beginAnimation(anchor.attachedNode.skeleton, idleRange.from, idleRange.to, true);
+            b.isVisible = false;
+        })
+
+        anchors.onAnchorRemovedObservable.add(anchor => {
+            if (anchor) {
+                anchor.attachedNode.isVisible = false;
+                anchor.attachedNode.dispose();
+            }
+        });
+    }
+
+    scene.onPointerDown = () => {
+        if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
+            anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+        }
+    }
+
+    return scene;
+        };
+
+        // Initialize scene and render loop
+        async function initializeApp() {
+            const scene = await createScene();
+            
+            // Hide loading screen
+            document.getElementById('loadingScreen').style.display = 'none';
+
+            // Render loop
+            engine.runRenderLoop(() => {
+                scene.render();
+            });
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                engine.resize();
+            });
+        }
+
+        // Start the application
+        initializeApp().catch(error => {
+            console.error('Failed to initialize AR app:', error);
+            document.getElementById('loadingScreen').innerHTML = 
+                '<div style="text-align: center; color: #ff6b6b;"><p>Error loading AR application</p><p style="font-size: 12px;">' + 
+                error.message + '</p></div>';
+        });
+    </script>
 </body>
 </html>
