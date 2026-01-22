@@ -186,7 +186,40 @@
                 
                 // --- Load Model ---
                 try {
-                    const result = await BABYLON.ImportMeshAsync("", modelUrl, "", scene);
+                    // Normalize model URL into rootUrl + fileName so ImportMeshAsync works
+                    let rootUrl = "";
+                    let fileName = "";
+                    if (typeof modelUrl === 'string') {
+                        try {
+                            // If modelUrl is an absolute or relative URL, use URL to parse
+                            const parsed = new URL(modelUrl, window.location.href);
+                            const lastSlash = parsed.pathname.lastIndexOf('/');
+                            if (lastSlash !== -1) {
+                                // Preserve full origin + path as rootUrl
+                                rootUrl = parsed.origin + parsed.pathname.substring(0, lastSlash + 1);
+                                fileName = parsed.pathname.substring(lastSlash + 1) + (parsed.search || parsed.hash || "");
+                            } else {
+                                rootUrl = parsed.origin + "/";
+                                fileName = parsed.pathname + (parsed.search || parsed.hash || "");
+                            }
+                        } catch (e) {
+                            // Not a valid URL object (could be a bare key or relative path)
+                            const lastSlash = modelUrl.lastIndexOf('/');
+                            if (lastSlash !== -1) {
+                                rootUrl = modelUrl.substring(0, lastSlash + 1);
+                                fileName = modelUrl.substring(lastSlash + 1);
+                            } else {
+                                rootUrl = "";
+                                fileName = modelUrl;
+                            }
+                        }
+                    }
+
+                    if (!fileName) {
+                        throw new Error('Invalid model URL or filename: ' + modelUrl);
+                    }
+
+                    const result = await BABYLON.ImportMeshAsync("", rootUrl, fileName, scene);
                     const mesh = result.meshes[0];
                     const skeleton = result.skeletons.length > 0 ? result.skeletons[0] : null;
 
