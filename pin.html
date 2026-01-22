@@ -123,11 +123,7 @@
   </div>
 
   <div id="xr-overlay">
-    <div id="xr-surface-indicator">
-      <div class="icon">⊕</div>
-      <div id="surface-text">ابحث عن سطح</div>
-      <button id="xr-pin-btn">📍 تثبيت الموقع</button>
-    </div>
+    
     <div id="xr-image-indicator">
       <div class="icon">🖼️</div>
       <div id="image-text" class="status">جار البحث عن الصورة المرجعية...</div>
@@ -694,12 +690,13 @@
                   return;
                 }
                 
-                // Create URL from downloaded data
-                const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
-                console.log('Loading model from:', fileUrl);
+                // Create a blob URL from the downloaded data directly (avoids CORS issues)
+                const blob = new Blob([data.Body], { type: 'application/octet-stream' });
+                const blobUrl = URL.createObjectURL(blob);
+                console.log('Loading model from blob:', blobUrl);
                 
-                // Load the model using GLTFLoader
-                loader.load(fileUrl, (gltf) => {
+                // Load the model using GLTFLoader with the blob URL
+                loader.load(blobUrl, (gltf) => {
                   console.log('✓ GLTF loaded successfully');
 
                   // Prepare AR model (this will be used in MindAR)
@@ -856,7 +853,9 @@
                   modelKey = prefixVal;
                   currentModelKey = key;
                   showLoadingScreen(false);
-                  resolve({ key, url: fileUrl });
+                  // Clean up the blob URL to free memory
+                  URL.revokeObjectURL(blobUrl);
+                  resolve({ key, url: `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}` });
                 }, (progress) => {
                   // Loading progress
                   if (progress.lengthComputable) {
