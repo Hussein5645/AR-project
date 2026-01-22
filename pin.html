@@ -1,162 +1,289 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>AR Surface Placement</title>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
 
-<script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
+  <title>WebXR Anchors – Dynamic Model</title>
 
-<style>
-body { margin: 0; overflow: hidden; touch-action: none; }
-</style>
+  <link rel="stylesheet" href="css/common.css">
 </head>
 
 <body>
+<header>
+  <details open>
+    <summary>Anchors</summary>
+    <p>
+      Tap to place anchored models in the real world.
+      <a class="back" href="./">Back</a>
+    </p>
+  </details>
+</header>
 
-<a-scene
-  embedded
-  vr-mode-ui="enabled:false"
-  renderer="colorManagement:true"
-  arjs="trackingMethod: best; debugUIEnabled: false"
-  webxr="requiredFeatures: hit-test">
+<script type="module">
+/* ============================================================
+   IMPORTS (OFFICIAL IMMERSIVE WEB STACK)
+============================================================ */
+import { WebXRButton } from './js/util/webxr-button.js';
+import { Scene } from './js/render/scenes/scene.js';
+import { Renderer, createWebGLContext }
+  from './js/render/core/renderer.js';
+import { SkyboxNode } from './js/render/nodes/skybox.js';
+import { InlineViewerHelper }
+  from './js/util/inline-viewer-helper.js';
+import { Gltf2Node }
+  from './js/render/nodes/gltf2.js';
+import { QueryArgs }
+  from './js/util/query-args.js';
 
-  <!-- Camera -->
-  <a-camera look-controls="enabled:false"></a-camera>
+import WebXRPolyfill
+  from './js/third-party/webxr-polyfill/build/webxr-polyfill.module.js';
 
-  <!-- Reticle -->
-  <a-entity
-    id="reticle"
-    arjs-hit-test
-    geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.05"
-    material="color:#00ffcc; shader:flat"
-    rotation="-90 0 0"
-    visible="false">
-  </a-entity>
+if (QueryArgs.getBool('usePolyfill', true)) {
+  new WebXRPolyfill();
+}
 
-  <!-- TEMPLATE MODEL (follows reticle before placement) -->
-  <a-entity
-    id="ar-model"
-    scale="0.4 0.4 0.4"
-    visible="false">
-  </a-entity>
-
-</a-scene>
-
-<script>
-/* -------------------------------
-   YOUR MODEL LOADING LOGIC
---------------------------------*/
+/* ============================================================
+   YOUR MODEL LOADING LOGIC (UNCHANGED IN BEHAVIOR)
+============================================================ */
 function getQueryParam(name) {
-  const urlParams = new URLSearchParams(window.location.search);
-  return urlParams.get(name);
+  return new URLSearchParams(window.location.search).get(name);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const modelEntity = document.getElementById('ar-model');
+let MODEL_URL = sessionStorage.getItem('currentModelUrl');
 
-  let modelUrl = sessionStorage.getItem('currentModelUrl');
+if (!MODEL_URL) {
+  const modelKey = getQueryParam('model');
 
-  if (!modelUrl) {
-    const modelKey = getQueryParam('model');
-    if (modelKey && window.AWS_CONFIG && AWS_CONFIG.bucketName && AWS_CONFIG.region) {
-      modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-    } else if (modelKey) {
-      modelUrl = modelKey;
+  if (modelKey &&
+      window.AWS_CONFIG &&
+      AWS_CONFIG.bucketName &&
+      AWS_CONFIG.region) {
+
+    MODEL_URL =
+      `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+
+  } else if (modelKey) {
+    MODEL_URL = modelKey;
+  }
+}
+
+if (!MODEL_URL) {
+  console.warn('⚠ No model URL found. Anchors will not place models.');
+} else {
+  console.log('✅ Using model:', MODEL_URL);
+}
+
+/* ============================================================
+   XR + RENDERER GLOBALS
+============================================================ */
+let xrButton = null;
+let xrImmersiveRefSpace = null;
+let inlineViewerHelper = null;
+
+let gl = null;
+let renderer = null;
+let scene = new Scene();
+
+let skybox = new SkyboxNode({
+  url: 'media/textures/milky-way-4k.png'
+});
+scene.addNode(skybox);
+
+const MAX_ANCHORED_OBJECTS = 30;
+let anchoredObjects = [];
+let all_previous_anchors = new Set();
+
+/* ============================================================
+   XR INITIALIZATION
+============================================================ */
+function initXR() {
+  xrButton = new WebXRButton({
+    onRequestSession,
+    onEndSession,
+    textEnterXRTitle: "START AR",
+    textXRNotFoundTitle: "AR NOT FOUND",
+    textExitXRTitle: "EXIT AR"
+  });
+
+  document.querySelector('header')
+    .appendChild(xrButton.domElement);
+
+  if (!navigator.xr) return;
+
+  navigator.xr.isSessionSupported('immersive-ar')
+    .then((supported) => {
+      xrButton.enabled = supported;
+    });
+
+  navigator.xr.requestSession('inline')
+    .then(onSessionStarted);
+}
+
+function onRequestSession() {
+  return navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['anchors']
+  }).then((session) => {
+    xrButton.setSession(session);
+    session.isImmersive = true;
+    onSessionStarted(session);
+  });
+}
+
+/* ============================================================
+   GL INITIALIZATION
+============================================================ */
+function initGL() {
+  if (gl) return;
+
+  gl = createWebGLContext({ xrCompatible: true });
+  document.body.appendChild(gl.canvas);
+
+  function resize() {
+    gl.canvas.width =
+      gl.canvas.clientWidth * window.devicePixelRatio;
+    gl.canvas.height =
+      gl.canvas.clientHeight * window.devicePixelRatio;
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  renderer = new Renderer(gl);
+  scene.setRenderer(renderer);
+}
+
+/* ============================================================
+   SESSION HANDLING
+============================================================ */
+function onSessionStarted(session) {
+  session.addEventListener('end', onSessionEnded);
+  session.addEventListener('select', onSelect);
+
+  skybox.visible = !session.isImmersive;
+
+  initGL();
+
+  scene.inputRenderer.useProfileControllerMeshes(session);
+  session.updateRenderState({
+    baseLayer: new XRWebGLLayer(session, gl)
+  });
+
+  const refType = session.isImmersive ? 'local' : 'viewer';
+
+  session.requestReferenceSpace(refType).then((refSpace) => {
+    if (session.isImmersive) {
+      xrImmersiveRefSpace = refSpace;
+    } else {
+      inlineViewerHelper =
+        new InlineViewerHelper(gl.canvas, refSpace);
     }
-  }
-
-  if (modelUrl) {
-    modelEntity.setAttribute('gltf-model', modelUrl);
-  } else {
-    console.warn('No model URL found.');
-  }
-});
-</script>
-
-<script>
-/* -------------------------------
-   AR INTERACTION LOGIC
---------------------------------*/
-const scene = document.querySelector('a-scene');
-const reticle = document.querySelector('#reticle');
-const templateModel = document.querySelector('#ar-model');
-
-let currentModel = null;
-let lastX = 0;
-let isDragging = false;
-let initialDistance = 0;
-
-/* FOLLOW RETICLE BEFORE TAP */
-scene.addEventListener('frame', () => {
-  if (reticle.object3D.visible && templateModel.getAttribute('gltf-model')) {
-    templateModel.object3D.position.copy(reticle.object3D.position);
-    templateModel.setAttribute('visible', true);
-  }
-});
-
-/* TAP TO PLACE (MULTIPLE MODELS) */
-scene.addEventListener('click', () => {
-  if (!reticle.object3D.visible) return;
-
-  const placedModel = document.createElement('a-entity');
-
-  placedModel.setAttribute(
-    'gltf-model',
-    templateModel.getAttribute('gltf-model')
-  );
-  placedModel.setAttribute('scale', templateModel.getAttribute('scale'));
-
-  placedModel.object3D.position.copy(reticle.object3D.position);
-  placedModel.object3D.quaternion.copy(reticle.object3D.quaternion);
-
-  scene.appendChild(placedModel);
-  currentModel = placedModel;
-});
-
-/* TOUCH CONTROLS */
-window.addEventListener('touchstart', e => {
-  if (!currentModel) return;
-
-  if (e.touches.length === 1) {
-    isDragging = true;
-    lastX = e.touches[0].clientX;
-  }
-
-  if (e.touches.length === 2) {
-    initialDistance = getDistance(e.touches);
-  }
-});
-
-window.addEventListener('touchmove', e => {
-  if (!currentModel) return;
-
-  /* ROTATE */
-  if (isDragging && e.touches.length === 1) {
-    const dx = e.touches[0].clientX - lastX;
-    currentModel.object3D.rotation.y += dx * 0.005;
-    lastX = e.touches[0].clientX;
-  }
-
-  /* SCALE */
-  if (e.touches.length === 2) {
-    const newDist = getDistance(e.touches);
-    const scaleFactor = newDist / initialDistance;
-    currentModel.object3D.scale.multiplyScalar(scaleFactor);
-    initialDistance = newDist;
-  }
-});
-
-window.addEventListener('touchend', () => {
-  isDragging = false;
-});
-
-function getDistance(touches) {
-  const dx = touches[0].clientX - touches[1].clientX;
-  const dy = touches[0].clientY - touches[1].clientY;
-  return Math.sqrt(dx * dx + dy * dy);
+    session.requestAnimationFrame(onXRFrame);
+  });
 }
-</script>
 
+function onEndSession() {
+  xrButton.setSession(null);
+}
+
+function onSessionEnded() {
+  skybox.visible = true;
+}
+
+/* ============================================================
+   ANCHOR + MODEL CREATION
+============================================================ */
+function addAnchoredObject(anchor) {
+  if (!MODEL_URL) return;
+
+  anchor.context = {};
+
+  const model = new Gltf2Node({ url: MODEL_URL });
+  model.scale = [0.4, 0.4, 0.4];
+
+  scene.addNode(model);
+
+  anchor.context.sceneObject = model;
+  model.anchor = anchor;
+
+  anchoredObjects.push(model);
+
+  if (anchoredObjects.length > MAX_ANCHORED_OBJECTS) {
+    const old = anchoredObjects.shift();
+    scene.removeNode(old);
+    old.anchor.delete();
+  }
+}
+
+function onSelect(event) {
+  const frame = event.frame;
+  const session = frame.session;
+  const inputSource = event.inputSource;
+
+  let pose = new XRRigidTransform(
+    { x: 0, y: 0, z: -1 },
+    { x: 0, y: 0, z: 0, w: 1 }
+  );
+
+  if (session.isImmersive) {
+    frame.createAnchor(pose, inputSource.targetRaySpace)
+      .then(addAnchoredObject)
+      .catch(err =>
+        console.error('Anchor failed:', err)
+      );
+  }
+}
+
+/* ============================================================
+   FRAME LOOP
+============================================================ */
+function onXRFrame(t, frame) {
+  const session = frame.session;
+  const refSpace = session.isImmersive
+    ? xrImmersiveRefSpace
+    : inlineViewerHelper.referenceSpace;
+
+  const pose = frame.getViewerPose(refSpace);
+
+  const tracked = frame.trackedAnchors;
+
+  if (tracked) {
+    all_previous_anchors.forEach(anchor => {
+      if (!tracked.has(anchor)) {
+        scene.removeNode(anchor.sceneObject);
+      }
+    });
+
+    tracked.forEach(anchor => {
+      if (!anchor.context) return;
+      const p = frame.getPose(anchor.anchorSpace, refSpace);
+      if (p) {
+        anchor.context.sceneObject.matrix =
+          p.transform.matrix;
+        anchor.context.sceneObject.visible = true;
+      } else {
+        anchor.context.sceneObject.visible = false;
+      }
+    });
+
+    all_previous_anchors = tracked;
+  }
+
+  scene.updateInputSources(frame, refSpace);
+  scene.startFrame();
+  session.requestAnimationFrame(onXRFrame);
+  scene.drawXRFrame(frame, pose);
+  scene.endFrame();
+}
+
+/* ============================================================
+   START APP
+============================================================ */
+initXR();
+
+</script>
 </body>
 </html>
