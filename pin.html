@@ -228,16 +228,17 @@
     <a-scene 
         id="scene"
         vr-mode-ui="enabled: false"
-        arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;"
-        renderer="antialias: true; alpha: true; precision: medium;"
+        arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best; patternRatio: 0.8;"
+        renderer="antialias: true; alpha: true; precision: medium; webglVersion: 1;"
+        embedded
     >
-        <!-- Camera -->
-        <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
+        <!-- Camera with AR tracking -->
+        <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
         <!-- 3D Model Entity -->
         <a-entity 
             id="model-entity"
-            position="0 0 -3"
+            position="0 0 -2"
             rotation="0 0 0"
             scale="1 1 1"
         >
@@ -245,8 +246,11 @@
         </a-entity>
 
         <!-- Light sources for better visibility -->
-        <a-light type="ambient" intensity="1.5" color="#fff"></a-light>
-        <a-light type="directional" intensity="1" color="#fff" position="5 10 7"></a-light>
+        <a-light type="ambient" intensity="2" color="#fff"></a-light>
+        <a-light type="directional" intensity="1.5" color="#fff" position="5 10 7"></a-light>
+
+        <!-- Ground plane for reference -->
+        <a-plane position="0 -1 -2" rotation="-90 0 0" width="4" height="4" color="#444" opacity="0.5"></a-plane>
 
         <!-- Sky for AR background -->
         <a-sky color="#87CEEB"></a-sky>
@@ -535,14 +539,30 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
+            console.log('Page loaded, initializing AR...');
+            
             // Initialize GPS
             initGPS();
+
+            // Check camera permissions
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                console.log('Camera access available');
+            } else {
+                console.error('Camera access not available');
+                loadingText.textContent = 'Error: Camera access not available';
+            }
 
             // Don't auto-load model - wait for button click
             const modelKey = getQueryParam('model');
             if (!modelKey) {
-                loadingText.textContent = 'Error: No model specified. Use ?model=KEY';
+                loadingText.textContent = 'Ready to load model';
             }
+
+            // Wait for A-Frame scene to load
+            const sceneEl = document.getElementById('scene');
+            sceneEl.addEventListener('loaded', () => {
+                console.log('A-Frame scene loaded');
+            });
 
             // Update UI periodically
             setInterval(() => {
