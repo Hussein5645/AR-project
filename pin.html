@@ -2,10 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Model Viewer - MindAR</title>
-    <script src="aws-config.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Location Based AR Experience</title>
     <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <script src="aws-config.js"></script>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -13,284 +17,498 @@
             box-sizing: border-box;
         }
 
-        body {
+        body, html {
             width: 100%;
-            height: 100vh;
+            height: 100%;
             overflow: hidden;
             font-family: Arial, sans-serif;
             background: #000;
         }
 
-        #ar-container {
-            width: 100%;
-            height: 100%;
-            position: relative;
-        }
-
-        #camera-feed {
+        #scene {
             width: 100%;
             height: 100%;
             display: block;
         }
 
-        #model-container {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
+        #info-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 300px;
+            z-index: 100;
+            font-size: 14px;
+            max-height: 200px;
+            overflow-y: auto;
         }
 
-        .controls {
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            color: #fff;
+            font-size: 18px;
+            flex-direction: column;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #distance-info {
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            display: flex;
-            gap: 10px;
-            z-index: 100;
             background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 50px;
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 100;
+            font-size: 16px;
+            min-width: 250px;
+            text-align: center;
         }
 
-        button {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s ease;
-        }
-
-        button:hover {
-            background: #45a049;
-        }
-
-        button:disabled {
-            background: #cccccc;
-            cursor: not-allowed;
-        }
-
-        .status {
+        #location-status {
             position: fixed;
-            top: 20px;
-            left: 20px;
+            bottom: 20px;
+            right: 20px;
             background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 5px;
-            font-size: 14px;
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 8px;
             z-index: 100;
-            max-width: 300px;
+            font-size: 12px;
         }
 
-        .error {
-            color: #ff6b6b;
-        }
-
-        .success {
-            color: #51cf66;
-        }
-
-        .loading {
+        .status-dot {
             display: inline-block;
             width: 10px;
             height: 10px;
-            background: #fff;
             border-radius: 50%;
-            animation: blink 1s infinite;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
         }
 
-        @keyframes blink {
+        .status-dot.active {
+            background-color: #4CAF50;
+        }
+
+        .status-dot.inactive {
+            background-color: #f44336;
+        }
+
+        @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            50% { opacity: 0.5; }
+        }
+
+        #controls {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 150;
+            text-align: center;
+            display: none;
+        }
+
+        #controls.show {
+            display: block;
+        }
+
+        .button {
+            background: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .button:hover {
+            background: #0056b3;
         }
     </style>
 </head>
 <body>
-    <div id="ar-container">
-        <video id="camera-feed" playsinline autoplay></video>
-        <canvas id="ar-canvas" style="position: absolute; width: 100%; height: 100%;"></canvas>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <div id="loading-text">Loading AR Experience...</div>
     </div>
 
-    <div class="status" id="status">
-        Initializing AR...
+    <!-- Info Panel -->
+    <div id="info-panel">
+        <h3>Location AR</h3>
+        <p id="model-name">Loading model...</p>
+        <p id="coordinates">Coordinates: --</p>
     </div>
 
-    <div class="controls">
-        <button id="load-model-btn" disabled>Load Model</button>
-        <button id="reset-btn">Reset</button>
+    <!-- Distance Info -->
+    <div id="distance-info">
+        <p>Distance to Model: <span id="distance-value">--</span></p>
+        <p id="bearing-info">Direction: --</p>
     </div>
 
-    <script type="module" src="lib/mindar/mindar-image.prod.js"></script>
-    <script type="module">
-        import { Controller, Compiler, UI } from './lib/mindar/mindar-image.prod.js';
+    <!-- Location Status -->
+    <div id="location-status">
+        <span class="status-dot inactive" id="status-dot"></span>
+        <span id="status-text">Initializing GPS...</span>
+    </div>
 
-        let runtime = null;
-        let modelUrl = null;
-        const statusEl = document.getElementById('status');
-        const loadModelBtn = document.getElementById('load-model-btn');
-        const resetBtn = document.getElementById('reset-btn');
-        const canvas = document.getElementById('ar-canvas');
-        const video = document.getElementById('camera-feed');
+    <!-- Controls Panel -->
+    <div id="controls">
+        <h3>AR Controls</h3>
+        <button class="button" onclick="resetView()">Reset View</button>
+        <button class="button" onclick="toggleInfo()">Toggle Info</button>
+        <button class="button" onclick="goBack()">Back</button>
+    </div>
 
-        // Get model URL from query parameter
-        function getModelUrlFromParams() {
-            const params = new URLSearchParams(window.location.search);
-            return params.get('modelUrl') || params.get('key');
+    <!-- A-Frame Scene -->
+    <a-scene 
+        id="scene"
+        vr-mode-ui="enabled: false"
+        arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;"
+        renderer="antialias: true; alpha: true; precision: medium;"
+    >
+        <!-- Camera with geolocation -->
+        <a-camera 
+            gps-camera 
+            rotation-reader 
+            position="0 1.6 0"
+            look-at="[gps-entity-place]">
+        </a-camera>
+
+        <!-- 3D Model Entity -->
+        <a-entity 
+            id="model-entity"
+            gps-entity-place="latitude: 0; longitude: 0;"
+            rotation="0 0 0"
+            scale="1 1 1"
+            animation="property: rotation; to: 0 360 0; dur: 5000; loop: true"
+        >
+            <!-- Model will be loaded here -->
+        </a-entity>
+
+        <!-- Sky for AR background -->
+        <a-sky color="#87CEEB"></a-sky>
+    </a-scene>
+
+    <!-- Scripts -->
+    <script>
+        // Initialize variables
+        const AWS_CONFIG_DATA = AWS_CONFIG;
+        const s3 = new AWS.S3();
+        const bucketName = AWS_CONFIG_DATA.bucketName;
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingText = document.getElementById('loading-text');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const infoPanel = document.getElementById('info-panel');
+        const distanceValue = document.getElementById('distance-value');
+        const bearingInfo = document.getElementById('bearing-info');
+        const modelNameEl = document.getElementById('model-name');
+        const coordinatesEl = document.getElementById('coordinates');
+        const scene = document.getElementById('scene');
+
+        let userLocation = null;
+        let modelLocation = { latitude: 0, longitude: 0 };
+        let currentModelUrl = null;
+        let currentModelKey = null;
+        let watchId = null;
+        let modelLoaded = false;
+
+        // Get query parameters
+        function getQueryParam(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
         }
 
-        // Update status message
-        function updateStatus(message, isError = false) {
-            statusEl.innerHTML = message;
-            statusEl.className = isError ? 'status error' : 'status';
-        }
+        // Initialize GPS tracking
+        function initGPS() {
+            statusText.textContent = 'Initializing GPS...';
+            statusDot.classList.remove('active');
+            statusDot.classList.add('inactive');
 
-        // Fetch model from S3
-        async function loadModelFromS3(key) {
-            try {
-                updateStatus('Fetching model from S3...');
-                
-                const s3 = new AWS.S3();
-                const params = {
-                    Bucket: window.AWS_CONFIG.bucket,
-                    Key: key
-                };
+            if ('geolocation' in navigator) {
+                // Get initial position
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        userLocation = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            altitude: position.coords.altitude || 0,
+                            accuracy: position.coords.accuracy
+                        };
+                        
+                        console.log('User location:', userLocation);
+                        statusText.textContent = 'GPS Connected';
+                        statusDot.classList.add('active');
+                        statusDot.classList.remove('inactive');
+                        
+                        // Place model at user location + some offset
+                        if (modelLoaded) {
+                            setModelLocation();
+                        }
 
-                const data = await s3.getObject(params).promise();
-                const blob = new Blob([data.Body], { type: data.ContentType });
-                return URL.createObjectURL(blob);
-            } catch (error) {
-                console.error('Error fetching from S3:', error);
-                updateStatus(`Error loading model: ${error.message}`, true);
-                throw error;
+                        // Watch position for continuous updates
+                        if (watchId === null) {
+                            watchId = navigator.geolocation.watchPosition(
+                                (position) => {
+                                    userLocation = {
+                                        latitude: position.coords.latitude,
+                                        longitude: position.coords.longitude,
+                                        altitude: position.coords.altitude || 0,
+                                        accuracy: position.coords.accuracy
+                                    };
+                                    updateDistanceAndBearing();
+                                    updateCoordinates();
+                                },
+                                (error) => {
+                                    console.error('GPS error:', error);
+                                    statusText.textContent = 'GPS Error: ' + error.message;
+                                    statusDot.classList.remove('active');
+                                    statusDot.classList.add('inactive');
+                                },
+                                { 
+                                    enableHighAccuracy: true,
+                                    maximumAge: 0,
+                                    timeout: 27000
+                                }
+                            );
+                        }
+                    },
+                    (error) => {
+                        console.error('Geolocation error:', error);
+                        statusText.textContent = 'GPS Error: ' + error.message;
+                        statusDot.classList.remove('active');
+                        statusDot.classList.add('inactive');
+                        alert('Please enable location services and refresh the page.');
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 0,
+                        timeout: 27000
+                    }
+                );
+            } else {
+                alert('Geolocation is not supported by this browser.');
+                statusText.textContent = 'GPS Not Supported';
+                statusDot.classList.remove('active');
+                statusDot.classList.add('inactive');
             }
         }
 
-        // Initialize AR
-        async function initializeAR() {
-            try {
-                updateStatus('Initializing AR engine...');
-                
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
-                });
-                
-                video.srcObject = stream;
+        // Set model location (offset from user)
+        function setModelLocation() {
+            if (!userLocation) return;
+            
+            // Place model ~20 meters ahead
+            const offsetLat = userLocation.latitude + 0.0002;
+            const offsetLon = userLocation.longitude + 0.0002;
+            
+            modelLocation = {
+                latitude: offsetLat,
+                longitude: offsetLon
+            };
 
-                // Initialize Controller with canvas
-                runtime = new Controller({
-                    canvas: canvas
-                });
-
-                // Start the AR controller
-                await runtime.start();
-
-                updateStatus('AR Ready - Point at marker', false);
-                loadModelBtn.disabled = false;
-
-                // Auto-load if URL has model parameter
-                if (modelUrl) {
-                    loadModel();
-                }
-            } catch (error) {
-                console.error('AR initialization error:', error);
-                updateStatus(`AR Error: ${error.message}`, true);
+            const modelEntity = document.getElementById('model-entity');
+            if (modelEntity) {
+                modelEntity.setAttribute('gps-entity-place', `latitude: ${modelLocation.latitude}; longitude: ${modelLocation.longitude}`);
             }
+
+            updateDistanceAndBearing();
         }
 
-        // Load and display model
-        async function loadModel() {
-            try {
-                if (!modelUrl) {
-                    updateStatus('No model URL provided', true);
+        // Calculate distance between two coordinates
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // Earth's radius in meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = 
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distance = R * c;
+            return distance;
+        }
+
+        // Calculate bearing
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+            const bearing = Math.atan2(y, x) * 180 / Math.PI;
+            return (bearing + 360) % 360;
+        }
+
+        // Update distance and bearing display
+        function updateDistanceAndBearing() {
+            if (!userLocation) return;
+
+            const distance = calculateDistance(
+                userLocation.latitude,
+                userLocation.longitude,
+                modelLocation.latitude,
+                modelLocation.longitude
+            );
+
+            const bearing = calculateBearing(
+                userLocation.latitude,
+                userLocation.longitude,
+                modelLocation.latitude,
+                modelLocation.longitude
+            );
+
+            distanceValue.textContent = distance.toFixed(1) + ' m';
+            bearingInfo.textContent = `Direction: ${bearing.toFixed(0)}° (from North)`;
+        }
+
+        // Update coordinates display
+        function updateCoordinates() {
+            if (!userLocation) return;
+            coordinatesEl.textContent = `Coordinates: ${userLocation.latitude.toFixed(6)}, ${userLocation.longitude.toFixed(6)}`;
+        }
+
+        // Load model from AWS
+        function loadModelFromAWS(prefix) {
+            loadingText.textContent = 'Fetching model from AWS...';
+
+            s3.listObjectsV2({ Bucket: bucketName, Prefix: prefix }, (err, data) => {
+                if (err) {
+                    console.error('Error fetching bucket contents:', err);
+                    loadingText.textContent = 'Error: Could not fetch model';
                     return;
                 }
 
-                updateStatus('Loading model...', false);
-                loadModelBtn.disabled = true;
+                if (data && data.Contents && data.Contents.length > 0) {
+                    const key = data.Contents[0].Key;
+                    currentModelKey = key;
 
-                const ctx = canvas.getContext('webgl', { preserveDrawingBuffer: true });
-                
-                // Load model based on type
-                if (modelUrl.endsWith('.gltf') || modelUrl.endsWith('.glb')) {
-                    await loadGLTFModel(ctx, modelUrl);
-                } else if (modelUrl.endsWith('.obj')) {
-                    await loadOBJModel(ctx, modelUrl);
+                    const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG_DATA.region}.amazonaws.com/${key}`;
+                    currentModelUrl = fileUrl;
+
+                    modelNameEl.textContent = `Model: ${key.split('/').pop()}`;
+
+                    // Determine file type
+                    const fileExtension = key.split('.').pop().toLowerCase();
+
+                    if (fileExtension === 'gltf' || fileExtension === 'glb') {
+                        loadGLTFModel(fileUrl);
+                    } else {
+                        loadingText.textContent = 'Error: Unsupported file format (Only GLB/GLTF supported)';
+                        console.error('Unsupported file format:', fileExtension);
+                    }
                 } else {
-                    updateStatus('Unsupported model format', true);
-                    loadModelBtn.disabled = false;
+                    loadingText.textContent = 'Error: Model not found';
+                    console.error('No model found with prefix:', prefix);
                 }
-            } catch (error) {
-                console.error('Model loading error:', error);
-                updateStatus(`Error: ${error.message}`, true);
-                loadModelBtn.disabled = false;
-            }
+            });
         }
 
         // Load GLTF/GLB model
-        async function loadGLTFModel(ctx, url) {
-            try {
-                const response = await fetch(url);
-                const arrayBuffer = await response.arrayBuffer();
-                
-                updateStatus(`<span class="loading"></span> Rendering model...`);
-                
-                // Model loaded successfully
-                updateStatus('Model loaded successfully!');
-                loadModelBtn.disabled = false;
-            } catch (error) {
-                throw new Error(`Failed to load GLTF model: ${error.message}`);
+        function loadGLTFModel(url) {
+            loadingText.textContent = 'Loading 3D model...';
+
+            const modelEntity = document.getElementById('model-entity');
+            
+            // Remove existing model if any
+            const existingModel = modelEntity.querySelector('a-gltf-model');
+            if (existingModel) {
+                existingModel.remove();
             }
+
+            // Create and append GLTF model
+            const gltfModel = document.createElement('a-gltf-model');
+            gltfModel.setAttribute('src', url);
+            gltfModel.setAttribute('scale', '1 1 1');
+            gltfModel.setAttribute('rotation', '0 0 0');
+            
+            gltfModel.addEventListener('loaded', () => {
+                console.log('Model loaded successfully');
+                loadingScreen.style.display = 'none';
+                modelLoaded = true;
+                setModelLocation();
+            });
+
+            gltfModel.addEventListener('error', (event) => {
+                console.error('Error loading model:', event);
+                loadingText.textContent = 'Error: Could not load 3D model';
+            });
+
+            modelEntity.appendChild(gltfModel);
         }
 
-        // Load OBJ model
-        async function loadOBJModel(ctx, url) {
-            try {
-                const response = await fetch(url);
-                const text = await response.text();
-                
-                updateStatus(`<span class="loading"></span> Rendering model...`);
-                
-                // Model loaded successfully
-                updateStatus('Model loaded successfully!');
-                loadModelBtn.disabled = false;
-            } catch (error) {
-                throw new Error(`Failed to load OBJ model: ${error.message}`);
-            }
+        // Control functions
+        function resetView() {
+            // Reset camera and model
+            setModelLocation();
+            console.log('View reset');
         }
 
-        // Reset AR
-        function reset() {
-            if (runtime) {
-                updateStatus('AR Ready - Point at marker');
-            }
-            loadModelBtn.disabled = false;
+        function toggleInfo() {
+            infoPanel.style.display = infoPanel.style.display === 'none' ? 'block' : 'none';
         }
 
-        // Event listeners
-        loadModelBtn.addEventListener('click', loadModel);
-        resetBtn.addEventListener('click', reset);
+        function goBack() {
+            window.history.back();
+        }
 
-        // Initialize on load
-        window.addEventListener('load', async () => {
-            modelUrl = getModelUrlFromParams();
-            if (!modelUrl) {
-                updateStatus('Please provide a model URL using ?modelUrl=... or ?key=...', false);
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            // Initialize GPS
+            initGPS();
+
+            // Load model from URL parameter
+            const modelKey = getQueryParam('model');
+            if (modelKey) {
+                loadModelFromAWS(modelKey);
+            } else {
+                loadingText.textContent = 'Error: No model specified. Use ?model=KEY';
             }
-            await initializeAR();
+
+            // Update UI periodically
+            setInterval(() => {
+                updateCoordinates();
+            }, 1000);
         });
 
-        // Cleanup on unload
+        // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
-            if (runtime) {
-                runtime.stop();
-            }
-            if (video.srcObject) {
-                video.srcObject.getTracks().forEach(track => track.stop());
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
             }
         });
     </script>
