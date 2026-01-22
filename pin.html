@@ -1,14 +1,16 @@
-
 <!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>AR Model Viewer - WebXR</title>
+    
     <script src="aws-config.js"></script>
-    <script src="lib/babylon/babylon.js"></script>
-    <script src="lib/babylon/babylon.loaders.js"></script>
-    <script src="lib/babylon/babylon.gui.min.js"></script>
+
+    <script src="[https://cdn.babylonjs.com/v6.49.0/babylon.js](https://cdn.babylonjs.com/v6.49.0/babylon.js)"></script>
+    <script src="[https://cdn.babylonjs.com/v6.49.0/loaders/babylonjs.loaders.min.js](https://cdn.babylonjs.com/v6.49.0/loaders/babylonjs.loaders.min.js)"></script>
+    <script src="[https://cdn.babylonjs.com/v6.49.0/gui/babylon.gui.min.js](https://cdn.babylonjs.com/v6.49.0/gui/babylon.gui.min.js)"></script>
+
     <style>
         * {
             margin: 0;
@@ -28,6 +30,7 @@
             width: 100%;
             height: 100%;
             display: block;
+            outline: none;
         }
 
         #loadingScreen {
@@ -43,7 +46,7 @@
             z-index: 100;
         }
 
-        .spinner {
+       .spinner {
             border: 4px solid #333;
             border-top: 4px solid #fff;
             border-radius: 50%;
@@ -57,13 +60,8 @@
             100% { transform: rotate(360deg); }
         }
 
-        body[lang="ar"] {
-            direction: rtl;
-        }
-
-        body[lang="en"] {
-            direction: ltr;
-        }
+        body[lang="ar"] { direction: rtl; }
+        body[lang="en"] { direction: ltr; }
     </style>
 </head>
 <body>
@@ -77,252 +75,234 @@
         const canvas = document.getElementById('renderCanvas');
         const engine = new BABYLON.Engine(canvas, true);
 
-        // Verify required libraries are loaded
+        // FIX 2: Explicitly configure Draco Compression to use CDN.
+        // This prevents the loader from looking for WASM files locally and failing.
+        BABYLON.DracoCompression.Configuration = {
+            decoder: {
+                wasmUrl: "[https://cdn.babylonjs.com/draco_wasm_wrapper_gltf.js](https://cdn.babylonjs.com/draco_wasm_wrapper_gltf.js)",
+                wasmBinaryUrl: "[https://cdn.babylonjs.com/draco_decoder_gltf.wasm](https://cdn.babylonjs.com/draco_decoder_gltf.wasm)",
+                fallbackUrl: "[https://cdn.babylonjs.com/draco_decoder_gltf.js](https://cdn.babylonjs.com/draco_decoder_gltf.js)"
+            }
+        };
+
+        // Check for GUI library load
         if (!BABYLON.GUI) {
             console.error('Babylon GUI library failed to load');
         }
-        // Note: ImportMeshAsync will be available when needed, no need to check here
 
         let createScene = async function () {
 
-    // This creates a basic Babylon Scene object (non-mesh)
-    var scene = new BABYLON.Scene(engine);
+            // Create a basic Babylon Scene object
+            var scene = new BABYLON.Scene(engine);
 
-    // This creates and positions a free camera (non-mesh)
-    var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 1, -5), scene);
+            // Create and position a free camera
+            var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 1, -5), scene);
+            camera.setTarget(BABYLON.Vector3.Zero());
+            camera.attachControl(canvas, true);
 
-    // This targets the camera to scene origin
-    camera.setTarget(BABYLON.Vector3.Zero());
+            // AR availability check and GUI setup
+            const arAvailable = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
 
-    // This attaches the camera to the canvas
-    camera.attachControl(canvas, true);
+            const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("FullscreenUI");
+            const rectangle = new BABYLON.GUI.Rectangle("rect");
+            rectangle.background = "black";
+            rectangle.color = "blue";
+            rectangle.width = "80%";
+            rectangle.height = "50%";
 
-    // AR availability check and GUI in non-AR mode
-    const arAvailable = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
+            advancedTexture.addControl(rectangle);
+            const nonXRPanel = new BABYLON.GUI.StackPanel();
+            rectangle.addControl(nonXRPanel);
 
-    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI(
-        "FullscreenUI"
-    );
-
-    const rectangle = new BABYLON.GUI.Rectangle("rect");
-    rectangle.background = "black";
-    rectangle.color = "blue";
-    rectangle.width = "80%";
-    rectangle.height = "50%";
-
-    advancedTexture.addControl(rectangle);
-    const nonXRPanel = new BABYLON.GUI.StackPanel();
-    rectangle.addControl(nonXRPanel);
-
-    const text1 = new BABYLON.GUI.TextBlock("text1");
-    text1.fontFamily = "Helvetica";
-    text1.textWrapping = true;
-    text1.color = "white";
-    text1.fontSize = "14px";
-    text1.height = "400px"
-    text1.paddingLeft = "10px";
-    text1.paddingRight = "10px";
- 
-    if (!arAvailable) {
-        text1.text = "AR is not available in your system. Please make sure you use a supported device such as a Meta Quest 3 or a modern Android device and a supported browser like Chrome.\n \n Make sure you have Google AR services installed and that you enabled the WebXR incubation flag under chrome://flags";
-        nonXRPanel.addControl(text1);
-        return scene;
-    } else {
-        text1.text = "WebXR Demo: Hit test and depth sensing.\n \n Please enter AR with the button on the lower right corner to start. Once in AR, look at the floor for a few seconds (and move a little): the hit-testing ring will appear. Then click anywhere on the screen to place a model in your space.";
-        nonXRPanel.addControl(text1);
-    }
-
-    // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
-    var light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-
-    // Default intensity is 1. Let's dim the light a small amount
-    light.intensity = 0.7;
-
-    var dirLight = new BABYLON.DirectionalLight('light', new BABYLON.Vector3(0, -1, -0.5), scene);
-    dirLight.position = new BABYLON.Vector3(0, 5, -5);
-
-    var shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
-    shadowGenerator.useBlurExponentialShadowMap = true;
-    shadowGenerator.blurKernel = 32;
-
-    function getQueryParam(name) {
-        const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get(name);
-    }
-
-    // Resolve model URL (same logic you already use)
-    let modelUrl = null;
-    try {
-        modelUrl = sessionStorage.getItem('currentModelUrl');
-    } catch (e) {
-        console.warn('SessionStorage blocked by tracking prevention:', e.message);
-    }
-
-    if (!modelUrl) {
-        const modelKey = getQueryParam('model');
-
-        if (
-            modelKey &&
-            window.AWS_CONFIG &&
-            AWS_CONFIG.bucketName &&
-            AWS_CONFIG.region
-        ) {
-            modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-        } else if (modelKey) {
-            modelUrl = modelKey;
-        }
-    }
-
-    // Fallback safety
-    if (!modelUrl) {
-        console.warn("No model URL found, using default");
-        modelUrl = "./scenes/dummy3.babylon";
-    }
-
-    // 🔹 Babylon model loading (UNCHANGED API)
-    const model = await BABYLON.ImportMeshAsync(
-        "",
-        modelUrl.substring(0, modelUrl.lastIndexOf("/") + 1),
-        modelUrl.substring(modelUrl.lastIndexOf("/") + 1),
-        scene
-    );
-
-
-    const xr = await scene.createDefaultXRExperienceAsync({
-        uiOptions: {
-            sessionMode: 'immersive-ar'
-        },
-        inputOptions: {
-            doNotLoadControllerMeshes: true
-        },
-        handSupportOptions: {
-            handMeshes: {
-                disableDefaultMeshes: true,
-            },
-            jointMeshes: {
-                keepOriginalVisible: false,
-                invisible: true
+            const text1 = new BABYLON.GUI.TextBlock("text1");
+            text1.fontFamily = "Helvetica";
+            text1.textWrapping = true;
+            text1.color = "white";
+            text1.fontSize = "14px";
+            text1.height = "400px";
+            text1.paddingLeft = "10px";
+            text1.paddingRight = "10px";
+       
+            if (!arAvailable) {
+                text1.text = "AR is not available on this system. Please use a supported mobile device (Android/iOS) or Meta Quest, and ensure you are on HTTPS.";
+                nonXRPanel.addControl(text1);
+                // Return scene here so we can still see the 3D model in non-AR mode
+            } else {
+                text1.text = "WebXR Demo: Hit test and depth sensing.\n \n Enter AR with the button in the lower right. Look at the floor to find a surface, then tap to place the model.";
+                nonXRPanel.addControl(text1);
             }
-        }
-    });
 
-    //Hide GUI in AR mode
-    xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
-        rectangle.isVisible = false;
-    })
-    xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
-        rectangle.isVisible = true;
+            // Lighting
+            var light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 0.7;
 
-    })
+            var dirLight = new BABYLON.DirectionalLight('dirLight', new BABYLON.Vector3(0, -1, -0.5), scene);
+            dirLight.position = new BABYLON.Vector3(0, 5, -5);
 
-    // Enable the depth sensing module to hide the added models behind real-world objects
-    xr.baseExperience.featuresManager.enableFeature(
-        BABYLON.WebXRFeatureName.DEPTH_SENSING,
-        "latest",
-        {
-            dataFormatPreference: ["ushort", "float"],
-            usagePreference: ["cpu", "gpu"],
-        },
-    );
+            var shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
+            shadowGenerator.useBlurExponentialShadowMap = true;
+            shadowGenerator.blurKernel = 32;
 
-    const fm = xr.baseExperience.featuresManager;
-
-    const xrTest = fm.enableFeature(BABYLON.WebXRHitTest.Name, "latest");
-    const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
-
-    fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
-
-    let b = model.meshes[0];
-    b.rotationQuaternion = new BABYLON.Quaternion();
-    shadowGenerator.addShadowCaster(b, true);
-
-    const marker = BABYLON.MeshBuilder.CreateTorus('marker', { diameter: 0.15, thickness: 0.05 });
-    marker.isVisible = false;
-    marker.rotationQuaternion = new BABYLON.Quaternion();
-
-    var skeleton = model.skeletons[0];
-
-    // ROBOT
-    skeleton.animationPropertiesOverride = new BABYLON.AnimationPropertiesOverride();
-    skeleton.animationPropertiesOverride.enableBlending = true;
-    skeleton.animationPropertiesOverride.blendingSpeed = 0.05;
-    skeleton.animationPropertiesOverride.loopMode = 1;
-
-    var idleRange = skeleton.getAnimationRange("YBot_Idle");
-    scene.beginAnimation(skeleton, idleRange.from, idleRange.to, true);
-
-    let hitTest;
-
-    b.isVisible = false;
-
-    xrTest.onHitTestResultObservable.add((results) => {
-        if (results.length) {
-            marker.isVisible = true;
-            hitTest = results[0];
-            hitTest.transformationMatrix.decompose(undefined, b.rotationQuaternion, b.position);
-            hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
-        } else {
-            marker.isVisible = false;
-            hitTest = undefined;
-        }
-    });
-    const mat1 = new BABYLON.StandardMaterial('1', scene);
-    mat1.diffuseColor = BABYLON.Color3.Red();
-    const mat2 = new BABYLON.StandardMaterial('1', scene);
-    mat2.diffuseColor = BABYLON.Color3.Blue();
-
-    if (anchors) {
-        anchors.onAnchorAddedObservable.add(anchor => {
-            b.isVisible = true;
-            anchor.attachedNode = b.clone("mensch");
-            anchor.attachedNode.skeleton = skeleton.clone('skelet');
-            shadowGenerator.addShadowCaster(anchor.attachedNode, true);
-            scene.beginAnimation(anchor.attachedNode.skeleton, idleRange.from, idleRange.to, true);
-            b.isVisible = false;
-        })
-
-        anchors.onAnchorRemovedObservable.add(anchor => {
-            if (anchor) {
-                anchor.attachedNode.isVisible = false;
-                anchor.attachedNode.dispose();
+            function getQueryParam(name) {
+                const urlParams = new URLSearchParams(window.location.search);
+                return urlParams.get(name);
             }
-        });
-    }
 
-    scene.onPointerDown = () => {
-        if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
-            anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
-        }
-    }
+            // Resolve model URL
+            let modelUrl = null;
+            try {
+                modelUrl = sessionStorage.getItem('currentModelUrl');
+            } catch (e) {
+                console.warn('SessionStorage access blocked:', e.message);
+            }
 
-    return scene;
+            if (!modelUrl) {
+                const modelKey = getQueryParam('model');
+
+                // Safety check for AWS_CONFIG before accessing it
+                if (modelKey && typeof window.AWS_CONFIG!== 'undefined' && AWS_CONFIG.bucketName && AWS_CONFIG.region) {
+                    modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+                } else if (modelKey) {
+                    modelUrl = modelKey;
+                }
+            }
+
+            // FIX 3: Fallback to a reliable public CDN URL if no model is found.
+            // This prevents local 404 errors when testing.
+            if (!modelUrl) {
+                console.warn("No model URL found, using default from Babylon Playground");
+                modelUrl = "[https://playground.babylonjs.com/scenes/dummy3.babylon](https://playground.babylonjs.com/scenes/dummy3.babylon)";
+            }
+
+            // Model Loading
+            try {
+                const result = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    modelUrl,
+                    "", // Empty string ensures it handles full URLs correctly
+                    scene
+                );
+                
+                const modelMesh = result.meshes;
+                modelMesh.rotationQuaternion = new BABYLON.Quaternion();
+                shadowGenerator.addShadowCaster(modelMesh, true);
+                
+                // Hide initially for AR placement
+                modelMesh.isVisible = false;
+
+                // Handle Animations if present (e.g., Robot)
+                if (result.skeletons.length > 0) {
+                    var skeleton = result.skeletons;
+                    skeleton.animationPropertiesOverride = new BABYLON.AnimationPropertiesOverride();
+                    skeleton.animationPropertiesOverride.enableBlending = true;
+                    skeleton.animationPropertiesOverride.blendingSpeed = 0.05;
+                    skeleton.animationPropertiesOverride.loopMode = 1;
+                    
+                    // Play first animation found as default
+                    var ranges = skeleton.getAnimationRanges();
+                    if (ranges.length > 0) {
+                        scene.beginAnimation(skeleton, ranges.from, ranges.to, true);
+                    }
+                }
+
+                // WebXR Setup
+                if (arAvailable) {
+                    const xr = await scene.createDefaultXRExperienceAsync({
+                        uiOptions: { sessionMode: 'immersive-ar' },
+                        inputOptions: { doNotLoadControllerMeshes: true }
+                    });
+
+                    // Hide GUI when entering AR
+                    xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
+                        rectangle.isVisible = false;
+                    });
+                    xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
+                        rectangle.isVisible = true;
+                    });
+
+                    // Hit Test & Anchors
+                    const fm = xr.baseExperience.featuresManager;
+                    const xrTest = fm.enableFeature(BABYLON.WebXRHitTest.Name, "latest");
+                    const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
+                    
+                    // Marker for hit testing
+                    const marker = BABYLON.MeshBuilder.CreateTorus('marker', { diameter: 0.15, thickness: 0.05 });
+                    marker.isVisible = false;
+                    marker.rotationQuaternion = new BABYLON.Quaternion();
+
+                    let hitTest;
+
+                    xrTest.onHitTestResultObservable.add((results) => {
+                        if (results.length) {
+                            marker.isVisible = true;
+                            hitTest = results;
+                            hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
+                        } else {
+                            marker.isVisible = false;
+                            hitTest = undefined;
+                        }
+                    });
+
+                    if (anchors) {
+                        anchors.onAnchorAddedObservable.add(anchor => {
+                            // Clone the loaded model at the anchor point
+                            const anchorNode = modelMesh.clone("anchorMesh");
+                            anchorNode.isVisible = true;
+                            anchor.attachedNode = anchorNode;
+                            
+                            // If skeletal, clone skeleton to animate independently
+                            if (result.skeletons.length > 0) {
+                                anchorNode.skeleton = result.skeletons.clone('anchorSkeleton');
+                                var ranges = anchorNode.skeleton.getAnimationRanges();
+                                if (ranges.length > 0) {
+                                    scene.beginAnimation(anchorNode.skeleton, ranges.from, ranges.to, true);
+                                }
+                            }
+                            shadowGenerator.addShadowCaster(anchorNode, true);
+                        });
+                    }
+
+                    scene.onPointerDown = () => {
+                        if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
+                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                        }
+                    }
+                } else {
+                    // Non-AR fallback: just show the model
+                    modelMesh.isVisible = true; 
+                    // Reset position for view
+                    modelMesh.position = new BABYLON.Vector3(0, 0, 0); 
+                }
+
+            } catch (error) {
+                console.error("Error loading mesh:", error);
+                text1.text += "\n\nError loading model: " + error.message;
+            }
+
+            return scene;
         };
 
-        // Initialize scene and render loop
         async function initializeApp() {
-            const scene = await createScene();
-            
-            // Hide loading screen
-            document.getElementById('loadingScreen').style.display = 'none';
+            try {
+                const scene = await createScene();
+                document.getElementById('loadingScreen').style.display = 'none';
+                
+                engine.runRenderLoop(() => {
+                    scene.render();
+                });
 
-            // Render loop
-            engine.runRenderLoop(() => {
-                scene.render();
-            });
-
-            // Handle window resize
-            window.addEventListener('resize', () => {
-                engine.resize();
-            });
+                window.addEventListener('resize', () => {
+                    engine.resize();
+                });
+            } catch (error) {
+                console.error('Failed to initialize AR app:', error);
+                document.getElementById('loadingScreen').innerHTML = 
+                    '<div style="text-align: center; color: #ff6b6b;"><p>Error initializing App</p><p style="font-size: 12px;">' + 
+                    error.message + '</p></div>';
+            }
         }
 
-        // Start the application
-        initializeApp().catch(error => {
-            console.error('Failed to initialize AR app:', error);
-            document.getElementById('loadingScreen').innerHTML = 
-                '<div style="text-align: center; color: #ff6b6b;"><p>Error loading AR application</p><p style="font-size: 12px;">' + 
-                error.message + '</p></div>';
-        });
+        initializeApp();
     </script>
 </body>
 </html>
