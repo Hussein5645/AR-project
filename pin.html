@@ -24,7 +24,6 @@
   renderer="colorManagement: true;"
   xr-mode-ui="enabled: true"
   arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
-  webxr="requiredFeatures: hit-test"
 >
 
   <!-- Camera -->
@@ -137,6 +136,21 @@ document.addEventListener('DOMContentLoaded', () => {
     console.warn('No model URL found');
   }
 });
+</script>
+
+<!-- Camera permission fallback: prompt getUserMedia to trigger camera access -->
+<script>
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      stream.getTracks().forEach(t => t.stop());
+    })
+    .catch(err => {
+      console.warn('Camera permission denied or unavailable:', err);
+    });
+} else {
+  console.warn('navigator.mediaDevices.getUserMedia not supported in this browser');
+}
 </script>
 
 </body>
