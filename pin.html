@@ -190,11 +190,12 @@
         <!-- A-Frame AR Scene -->
         <a-scene 
             embedded 
-            arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;"
-            renderer="antialias: true; alpha: true;"
+            arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best; videoTexturScale: 1.0;"
+            renderer="antialias: true; alpha: true; precision: mediump;"
+            vr-mode-ui="false"
         >
             <!-- Camera -->
-            <a-camera position="0 1.6 0" look-controls wasd-controls></a-camera>
+            <a-camera position="0 1.6 0"></a-camera>
 
             <!-- 3D Model Entity -->
             <a-entity 
@@ -545,24 +546,60 @@
         function initializeCamera() {
             const scene = document.querySelector('a-scene');
             
-            scene.addEventListener('loaded', () => {
-                updateStatus('camera', true, 'Camera Ready');
-                state.cameraReady = true;
-                console.log('Camera initialized');
-            });
+            console.log('Initializing camera...');
+            
+            // Wait for A-Frame scene to be ready
+            if (scene.hasLoaded) {
+                setupCamera();
+            } else {
+                scene.addEventListener('loaded', setupCamera);
+            }
+        }
 
-            // Try to get camera access
+        function setupCamera() {
+            console.log('Setting up camera feed...');
+            
+            // Request camera permissions
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false 
+                })
                     .then(stream => {
+                        console.log('Camera stream obtained:', stream);
                         updateStatus('camera', true, 'Camera Ready');
                         state.cameraReady = true;
+                        
+                        // Stop the stream as AR.js will handle it
+                        stream.getTracks().forEach(track => track.stop());
                     })
                     .catch(error => {
-                        showError('Camera access denied. Please allow camera access to use AR.');
+                        console.error('Camera access error:', error);
+                        showError('❌ Camera access denied.\n\nPlease allow camera permissions in your browser settings.');
                         updateStatus('camera', false, 'Access Denied');
+                        
+                        // Provide fallback instructions
+                        setTimeout(() => {
+                            showError('📱 Mobile devices: Check browser settings\n💻 Desktop: Allow camera access when prompted');
+                        }, 3000);
                     });
+            } else {
+                console.error('getUserMedia not supported');
+                showError('Your browser does not support camera access');
+                updateStatus('camera', false, 'Not Supported');
             }
+            
+            // Set a timeout to mark camera as initialized even if permission denied
+            setTimeout(() => {
+                if (!state.cameraReady) {
+                    updateStatus('camera', true, 'Attempting...');
+                    state.cameraReady = true;
+                }
+            }, 3000);
         }
 
         // ==================== Tracking Detection ====================
@@ -620,7 +657,8 @@
 
         // ==================== Initialization ====================
         async function initialize() {
-            console.log('Initializing AR Application...');
+            console.log('🚀 Initializing AR Application...');
+            console.log('📍 AR.js version:', AFRAME ? AFRAME.version : 'Unknown');
             
             // Setup
             setupEventListeners();
@@ -632,7 +670,7 @@
                 const modelUrl = await getModelUrlFromParams();
                 
                 if (modelUrl) {
-                    console.log('Loading model from URL:', modelUrl);
+                    console.log('📦 Loading model from URL:', modelUrl);
                     await loadModel(modelUrl);
                 } else {
                     updateStatus('model', false, 'Awaiting URL parameter');
@@ -641,20 +679,34 @@
             } catch (error) {
                 showError('Initialization error: ' + error.message);
                 updateStatus('model', false, 'Error');
+                console.error('Initialization error:', error);
             }
 
             // Display instructions
-            console.log('AR.js Application Ready');
-            console.log('Waiting for surface detection...');
+            console.log('✅ AR.js Application Ready');
+            console.log('⏳ Waiting for surface detection...');
+            console.log('🎥 Check browser console for detailed logs');
         }
 
         // Start when DOM is ready
-        document.addEventListener('DOMContentLoaded', initialize);
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📄 DOM Content Loaded');
+            setTimeout(initialize, 500);
+        });
 
         // Fallback initialization if A-Frame loads quickly
         window.addEventListener('load', () => {
+            console.log('🪟 Window Load Event');
             if (!state.cameraReady) {
-                setTimeout(initialize, 500);
+                setTimeout(() => {
+                    if (!state.cameraReady) {
+                        console.log('⚠️ Camera still not ready, checking A-Frame scene...');
+                        const scene = document.querySelector('a-scene');
+                        if (scene && scene.hasLoaded) {
+                            setupCamera();
+                        }
+                    }
+                }, 1000);
             }
         });
     </script>
