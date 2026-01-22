@@ -145,6 +145,22 @@
             text-align: center;
         }
 
+        #surface-placement-hint {
+            position: fixed;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(33, 150, 243, 0.9);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 100;
+            font-size: 16px;
+            display: none;
+            text-align: center;
+            font-weight: bold;
+        }
+
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
@@ -290,6 +306,9 @@
     <!-- Placement Info -->
     <div id="placement-info">Drag to move • Swipe to rotate</div>
 
+    <!-- Surface Placement Hint -->
+    <div id="surface-placement-hint">Tap screen to place model on surface</div>
+
     <!-- Camera Canvas -->
     <canvas id="camera-canvas"></canvas>
 
@@ -412,6 +431,10 @@
         let modelRotationY = 0;
         const placementControls = document.getElementById('placement-controls');
         const placementInfo = document.getElementById('placement-info');
+        let isPlacingModel = false;
+        let raycaster = null;
+        let mouse = new THREE.Vector2();
+        let intersectedSurface = null;
 
         // Get query parameters
         function getQueryParam(name) {
@@ -630,13 +653,17 @@
                 loadModelButton.style.display = 'none';
                 modelLoaded = true;
                 modelPinned = false;
+                isPlacingModel = true;
                 
-                // Show placement controls
-                placementControls.style.display = 'flex';
-                placementInfo.style.display = 'block';
+                // Show surface placement hint
+                document.getElementById('surface-placement-hint').style.display = 'block';
                 
-                // Add touch/mouse controls for model placement
-                setupModelControls();
+                // Hide movement controls until placement is done
+                placementControls.style.display = 'none';
+                placementInfo.style.display = 'none';
+                
+                // Add raycaster for surface detection
+                setupSurfaceDetection();
                 
                 // Update UI
                 updateDistanceAndBearing();
@@ -775,6 +802,120 @@
             }, 1500);
             
             console.log('Model pinned at position:', pos);
+        }
+
+        // Surface detection and placement
+        function setupSurfaceDetection() {
+            const sceneEl = document.getElementById('scene');
+            const modelEntity = document.getElementById('model-entity');
+            const canvas = document.getElementById('camera-canvas');
+            const hint = document.getElementById('surface-placement-hint');
+            
+            // Get Three.js scene from A-Frame
+            const aframeScene = sceneEl.object3D;
+            raycaster = new THREE.Raycaster();
+            
+            // Create detection planes
+            const planeGeometry = new THREE.PlaneGeometry(20, 20);
+            const planeMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+            
+            // Ground plane
+            const groundPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+            groundPlane.position.set(0, -0.5, -1.5);
+            groundPlane.rotation.x = -Math.PI / 2;
+            groundPlane.userData.name = 'ground';
+            aframeScene.add(groundPlane);
+            
+            // Vertical plane
+            const wallPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+            wallPlane.position.set(0, 0, -2);
+            wallPlane.userData.name = 'wall';
+            aframeScene.add(wallPlane);
+            
+            // Mouse move for surface detection
+            canvas.addEventListener('mousemove', (e) => {
+                if (!isPlacingModel || modelPinned) return;
+                
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                
+                updateModelPlacement();
+            });
+            
+            // Touch move for surface detection
+            canvas.addEventListener('touchmove', (e) => {
+                if (!isPlacingModel || modelPinned) return;
+                e.preventDefault();
+                
+                const touch = e.touches[0];
+                mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+                
+                updateModelPlacement();
+            });
+            
+            // Click/Tap to place
+            canvas.addEventListener('click', () => {
+                if (isPlacingModel && !modelPinned) {
+                    finalizePlacement();
+                }
+            });
+            
+            canvas.addEventListener('touchend', (e) => {
+                if (isPlacingModel && !modelPinned && e.touches.length === 0) {
+                    finalizePlacement();
+                }
+            });
+            
+            function updateModelPlacement() {
+                // Get camera from A-Frame scene
+                const camera = aframeScene.children.find(child => child.isCamera);
+                if (!camera) return;
+                
+                raycaster.setFromCamera(mouse, camera);
+                
+                const detectionPlanes = [
+                    aframeScene.children.find(p => p.userData.name === 'ground'),
+                    aframeScene.children.find(p => p.userData.name === 'wall')
+                ].filter(p => p);
+                
+                const intersects = raycaster.intersectObjects(detectionPlanes);
+                
+                if (intersects.length > 0) {
+                    const intersection = intersects[0];
+                    intersectedSurface = intersection;
+                    
+                    // Update model position
+                    const point = intersection.point;
+                    modelEntity.setAttribute('position', `${point.x} ${point.y} ${point.z}`);
+                    
+                    // Visual feedback - change hint color
+                    hint.style.background = 'rgba(76, 175, 80, 0.9)';
+                    hint.textContent = '✓ Ready to place - Tap to confirm';
+                } else {
+                    hint.style.background = 'rgba(33, 150, 243, 0.9)';
+                    hint.textContent = 'Move over a surface';
+                }
+            }
+            
+            function finalizePlacement() {
+                isPlacingModel = false;
+                hint.style.display = 'none';
+                
+                // Show message
+                loadingText.textContent = 'Model placed! Adjust & pin it';
+                loadingScreen.style.display = 'flex';
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                    
+                    // Show movement controls
+                    placementControls.style.display = 'flex';
+                    placementInfo.style.display = 'block';
+                    
+                    // Setup rotation/movement controls
+                    setupModelControls();
+                }, 800);
+            }
         }
 
         // Initialize on page load
