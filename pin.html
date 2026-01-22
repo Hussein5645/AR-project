@@ -7,7 +7,8 @@
     <title>AR Model Viewer - WebXR</title>
     <script src="aws-config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/babylonjs@6.x/babylon.js"></script>
-    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-gui@6.x/babylon.gui.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.x/babylonjs.loaders.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -75,6 +76,11 @@
         // Initialize canvas and engine
         const canvas = document.getElementById('renderCanvas');
         const engine = new BABYLON.Engine(canvas, true);
+
+        // Ensure GUI is loaded and available
+        if (!BABYLON.GUI) {
+            console.error('Babylon GUI library failed to load');
+        }
 
         let createScene = async function () {
 
