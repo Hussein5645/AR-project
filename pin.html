@@ -73,6 +73,8 @@
         <div id="loadingText">Loading Engine...</div>
     </div>
     <canvas id="renderCanvas"></canvas>
+    <!-- AR Button (hidden by default) -->
+    <button id="arButton" aria-label="Enter AR" style="display:none">AR</button>
 
     <script>
         // Wait for DOM content to be fully loaded
@@ -265,6 +267,47 @@
                         uiOptions: { sessionMode: 'immersive-ar' },
                         inputOptions: { doNotLoadControllerMeshes: true }
                     });
+
+                        // Setup a visible AR button (falls back to default XR UI if unavailable)
+                        const arButton = document.getElementById('arButton');
+                        if (arButton) {
+                            // Basic styling for the button (inlined so no external CSS needed)
+                            arButton.style.position = 'fixed';
+                            arButton.style.right = '16px';
+                            arButton.style.bottom = '16px';
+                            arButton.style.zIndex = '200';
+                            arButton.style.padding = '12px 16px';
+                            arButton.style.background = '#0b84ff';
+                            arButton.style.color = 'white';
+                            arButton.style.border = 'none';
+                            arButton.style.borderRadius = '8px';
+                            arButton.style.fontSize = '16px';
+                            arButton.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+                            arButton.style.display = 'none';
+
+                            if (arAvailable) {
+                                arButton.style.display = 'block';
+                            }
+
+                            arButton.addEventListener('click', async () => {
+                                try {
+                                    await xr.baseExperience.enterXRAsync();
+                                } catch (e) {
+                                    console.error('Failed to enter XR session', e);
+                                    alert('Unable to start AR session. See console for details.');
+                                }
+                            });
+
+                            // Hide/show button and GUI when XR session starts/ends
+                            xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
+                                arButton.style.display = 'none';
+                                if (scene.userData && scene.userData.guiRect) scene.userData.guiRect.isVisible = false;
+                            });
+                            xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
+                                if (arAvailable) arButton.style.display = 'block';
+                                if (scene.userData && scene.userData.guiRect) scene.userData.guiRect.isVisible = true;
+                            });
+                        }
 
                     // Hide GUI when in AR
                     if (scene.userData && scene.userData.guiRect) {
