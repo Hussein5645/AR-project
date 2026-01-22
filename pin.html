@@ -2,489 +2,325 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-    <title>AR Model Viewer - AWS</title>
-    
-    <!-- AR.js Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/three@r126/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@r126/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/three.js/ar.js"></script>
-    
-    <!-- AWS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR.js - Load Model from AWS</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/aframe-ar.js"></script>
     <script src="aws-config.js"></script>
-
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1600.0.min.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             overflow: hidden;
             background: #000;
         }
-
-        #canvas {
+        
+        #arScene {
             width: 100%;
             height: 100%;
             display: block;
         }
-
-        .ui-container {
+        
+        #ui-container {
             position: fixed;
             top: 20px;
             left: 20px;
+            right: 20px;
             z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .control-group {
             background: rgba(0, 0, 0, 0.7);
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
-            max-width: 300px;
+            backdrop-filter: blur(10px);
         }
-
-        .title {
-            color: #fff;
-            font-size: 18px;
-            margin-bottom: 15px;
-            font-weight: bold;
-        }
-
-        .input-group {
-            margin-bottom: 15px;
-        }
-
+        
         label {
             display: block;
-            color: #aaa;
-            font-size: 12px;
-            margin-bottom: 5px;
-            text-transform: uppercase;
+            color: #fff;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
         }
-
+        
         input[type="text"] {
             width: 100%;
-            padding: 8px;
-            border: 1px solid #444;
+            padding: 10px;
+            border: 2px solid #00bfff;
             border-radius: 5px;
-            background: #222;
+            background: rgba(255, 255, 255, 0.1);
             color: #fff;
             font-size: 14px;
-        }
-
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #0099ff;
-            background: #1a1a1a;
-        }
-
-        .button-group {
-            display: flex;
-            gap: 10px;
             margin-bottom: 10px;
         }
-
+        
+        input[type="text"]::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #00ff00;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+        }
+        
         button {
-            flex: 1;
-            padding: 10px;
+            padding: 12px 20px;
             border: none;
             border-radius: 5px;
-            background: #0099ff;
-            color: #fff;
-            font-weight: bold;
-            cursor: pointer;
             font-size: 14px;
-            transition: background 0.3s ease;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
-
-        button:hover {
-            background: #0077cc;
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #00bfff 0%, #0080ff 100%);
+            color: #fff;
         }
-
-        button:disabled {
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 191, 255, 0.4);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .btn-primary:disabled {
             background: #666;
             cursor: not-allowed;
+            opacity: 0.5;
         }
-
-        .model-list {
-            color: #aaa;
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff4757 100%);
+            color: #fff;
+            margin-top: 5px;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 71, 87, 0.4);
+        }
+        
+        #status {
+            color: #00ff00;
             font-size: 12px;
-            margin-top: 10px;
-            border-top: 1px solid #444;
-            padding-top: 10px;
-        }
-
-        .model-item {
-            background: #1a1a1a;
-            padding: 8px;
-            margin-bottom: 5px;
-            border-radius: 3px;
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-
-        .model-item:hover {
-            background: #2a2a2a;
-        }
-
-        .status {
-            color: #0f0;
-            font-size: 12px;
-            margin-top: 10px;
-            padding: 8px;
+            padding: 10px;
             background: rgba(0, 255, 0, 0.1);
+            border-left: 3px solid #00ff00;
             border-radius: 3px;
             display: none;
         }
-
-        .status.active {
+        
+        #status.error {
+            color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+            border-left-color: #ff6b6b;
+        }
+        
+        #status.show {
             display: block;
         }
-
-        .error {
-            color: #f00;
+        
+        .info-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            color: #fff;
             font-size: 12px;
-            margin-top: 10px;
-            padding: 8px;
-            background: rgba(255, 0, 0, 0.1);
-            border-radius: 3px;
-            display: none;
+            max-width: 300px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
         }
-
-        .error.active {
-            display: block;
+        
+        .info-panel h3 {
+            margin-bottom: 10px;
+            color: #00bfff;
         }
-
-        .controls-hint {
-            color: #888;
-            font-size: 11px;
-            margin-top: 15px;
-            padding-top: 10px;
-            border-top: 1px solid #444;
-            line-height: 1.6;
-        }
-
-        .loading {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        
+        .info-panel p {
+            margin: 5px 0;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
+    <a-scene 
+        id="arScene"
+        embedded 
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: color_and_matrix; matrixCodeType: 3x3;">
+        <a-camera position="0 0 0"></a-camera>
+        <a-entity id="model-container" position="0 0 -5"></a-entity>
+    </a-scene>
 
-    <div class="ui-container">
-        <div class="title">🌍 AR Model Loader</div>
-        
-        <div class="input-group">
-            <label>Model URL (S3 or Full URL)</label>
+    <div id="ui-container">
+        <div class="control-group">
+            <label for="modelKey">Model S3 Key:</label>
             <input 
                 type="text" 
-                id="modelUrl" 
-                placeholder="e.g., model.gltf or s3://bucket/model.gltf"
-            >
-        </div>
-
-        <div class="button-group">
-            <button id="loadBtn">📥 Load Model</button>
-            <button id="clearBtn">🗑️ Clear</button>
-        </div>
-
-        <div class="model-list" id="modelList">
-            <div style="color: #0099ff; font-weight: bold; margin-bottom: 8px;">📦 Models in S3</div>
-            <div id="modelItems" style="max-height: 150px; overflow-y: auto;"></div>
-        </div>
-
-        <div class="status" id="status"></div>
-        <div class="error" id="error"></div>
-
-        <div class="controls-hint">
-            💡 <strong>Controls:</strong><br>
-            ⬆️ Pinch to zoom<br>
-            🔄 Rotate model<br>
-            ➡️ Drag to move
+                id="modelKey" 
+                placeholder="e.g., models/chair.gltf" 
+                value="models/chair.gltf">
+            <button id="loadBtn" class="btn-primary">Load Model from AWS</button>
+            <button id="clearBtn" class="btn-secondary">Clear Model</button>
+            <div id="status"></div>
         </div>
     </div>
 
+    <div class="info-panel">
+        <h3>Controls</h3>
+        <p><strong>1.</strong> Point camera at QR code</p>
+        <p><strong>2.</strong> Enter S3 model key</p>
+        <p><strong>3.</strong> Click "Load Model"</p>
+        <p><strong>4.</strong> Model appears on surface</p>
+    </div>
+
     <script>
-        // Global variables
-        let scene, camera, renderer, arToolkitSource, arToolkitContext;
-        let loadedModel = null;
-        const s3 = new AWS.S3({
+        // Initialize AWS SDK
+        AWS.config.update({
             accessKeyId: AWS_CONFIG.accessKeyId,
             secretAccessKey: AWS_CONFIG.secretAccessKey,
             region: AWS_CONFIG.region
         });
 
-        // Get URL query parameter
-        function getQueryParam(name) {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get(name);
-        }
+        const s3 = new AWS.S3();
+        const bucket = AWS_CONFIG.bucketName;
+        let currentModel = null;
 
-        // Initialize Three.js AR scene
-        function initAR() {
-            // Setup canvas and renderer
-            const canvas = document.getElementById('canvas');
-            renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
+        const modelKeyInput = document.getElementById('modelKey');
+        const loadBtn = document.getElementById('loadBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusDiv = document.getElementById('status');
+        const modelContainer = document.getElementById('model-container');
 
-            // Setup scene
-            scene = new THREE.Scene();
-
-            // Setup camera
-            camera = new THREE.Camera();
-            scene.add(camera);
-
-            // Setup AR.js
-            arToolkitSource = new THREEx.ArToolkitSource({
-                sourceType: 'webcam',
-                sourceWidth: 1280,
-                sourceHeight: 960
-            });
-
-            arToolkitSource.init(() => onARSourceReady(arToolkitSource));
-
-            // Setup AR context
-            const parameters = {
-                detectionMode: 'color',
-                matrixCodeType: '3x3',
-                canvasWidth: window.innerWidth,
-                canvasHeight: window.innerHeight
-            };
-
-            arToolkitContext = new THREEx.ArToolkitContext(parameters);
-            arToolkitContext.init(() => {
-                camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
-            });
-
-            // Setup lighting
-            const light = new THREE.DirectionalLight(0xffffff, 1);
-            light.position.set(5, 10, 5);
-            light.castShadow = true;
-            scene.add(light);
-
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-            scene.add(ambientLight);
-
-            // Setup ground plane for model placement
-            const planeGeometry = new THREE.PlaneGeometry(100, 100);
-            const planeMaterial = new THREE.MeshStandardMaterial({
-                color: 0x888888,
-                transparent: true,
-                opacity: 0.1
-            });
-            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-            plane.rotation.x = -Math.PI / 2;
-            plane.receiveShadow = true;
-            scene.add(plane);
-
-            // Handle window resize
-            window.addEventListener('resize', onWindowResize);
-
-            // Start render loop
-            render();
-        }
-
-        function onARSourceReady(arToolkitSource) {
-            arToolkitSource.domElement.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-            }, false);
-        }
-
-        function render() {
-            requestAnimationFrame(render);
-
-            if (arToolkitSource && arToolkitSource.ready !== false) {
-                arToolkitContext.update(arToolkitSource.domElement);
-            }
-
-            // Rotate model if loaded
-            if (loadedModel) {
-                loadedModel.rotation.y += 0.005;
-            }
-
-            renderer.render(scene, camera);
-        }
-
-        function onWindowResize() {
-            arToolkitSource.onResizeElement();
-            arToolkitSource.copyElementSizeTo(renderer.domElement);
-            if (arToolkitContext && arToolkitContext.arController) {
-                arToolkitContext.arController.orientation = window.orientation;
-                arToolkitContext.arController.options.trackingBackend = 'artoolkit';
-            }
-        }
-
-        // Load model from S3 or URL
-        async function loadModel() {
-            const urlInput = document.getElementById('modelUrl').value.trim();
+        // Utility function to show status messages
+        function showStatus(message, isError = false) {
+            statusDiv.textContent = message;
+            statusDiv.classList.add('show');
+            statusDiv.classList.toggle('error', isError);
             
-            if (!urlInput) {
-                showError('Please enter a model URL');
+            if (!isError) {
+                setTimeout(() => {
+                    statusDiv.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // Generate signed URL from AWS S3
+        async function getModelUrl(key) {
+            return new Promise((resolve, reject) => {
+                const params = {
+                    Bucket: bucket,
+                    Key: key,
+                    Expires: 3600 // URL valid for 1 hour
+                };
+
+                s3.getSignedUrl('getObject', params, (err, url) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(url);
+                    }
+                });
+            });
+        }
+
+        // Load model from AWS S3
+        async function loadModelFromAWS() {
+            const key = modelKeyInput.value.trim();
+
+            if (!key) {
+                showStatus('Please enter a valid S3 key', true);
                 return;
             }
 
-            showStatus('Loading model...');
-            
-            try {
-                let modelUrl = urlInput;
+            loadBtn.disabled = true;
+            showStatus('Fetching model from AWS...');
 
-                // If it's an S3 path, convert to signed URL
-                if (urlInput.startsWith('s3://')) {
-                    const s3Path = urlInput.replace('s3://', '').split('/');
-                    const key = s3Path.slice(1).join('/');
-                    modelUrl = s3.getSignedUrl('getObject', {
-                        Bucket: AWS_CONFIG.bucketName,
-                        Key: key,
-                        Expires: 3600
-                    });
-                } else if (!urlInput.startsWith('http')) {
-                    // Assume it's a key in the bucket
-                    modelUrl = s3.getSignedUrl('getObject', {
-                        Bucket: AWS_CONFIG.bucketName,
-                        Key: urlInput,
-                        Expires: 3600
-                    });
+            try {
+                const url = await getModelUrl(key);
+                showStatus('Model URL generated, loading model...');
+
+                // Remove existing model if any
+                const existingModel = modelContainer.querySelector('a-entity[gltf-model]');
+                if (existingModel) {
+                    existingModel.remove();
                 }
 
-                // Load the model using GLTFLoader
-                const loader = new THREE.GLTFLoader();
-                loader.load(
-                    modelUrl,
-                    (gltf) => {
-                        if (loadedModel) {
-                            scene.remove(loadedModel);
-                        }
+                // Create and add new model entity
+                const modelEntity = document.createElement('a-entity');
+                modelEntity.setAttribute('gltf-model', url);
+                modelEntity.setAttribute('scale', '1 1 1');
+                modelEntity.setAttribute('position', '0 -0.5 0');
+                modelEntity.setAttribute('rotation', '0 0 0');
 
-                        loadedModel = gltf.scene;
-                        loadedModel.scale.set(0.5, 0.5, 0.5);
-                        loadedModel.position.y = 0;
-                        loadedModel.castShadow = true;
-                        loadedModel.receiveShadow = true;
-
-                        // Process all meshes in the model
-                        loadedModel.traverse((child) => {
-                            if (child.isMesh) {
-                                child.castShadow = true;
-                                child.receiveShadow = true;
-                            }
-                        });
-
-                        scene.add(loadedModel);
-                        showStatus('✅ Model loaded successfully!');
-                        hideError();
-                    },
-                    (progress) => {
-                        const percent = Math.round((progress.loaded / progress.total) * 100);
-                        showStatus(`Loading... ${percent}%`);
-                    },
-                    (error) => {
-                        showError(`Failed to load model: ${error.message}`);
-                    }
-                );
-            } catch (error) {
-                showError(`Error: ${error.message}`);
-            }
-        }
-
-        // Fetch and list models from S3
-        async function listS3Models() {
-            try {
-                showStatus('Fetching models from S3...');
-                const params = {
-                    Bucket: AWS_CONFIG.bucketName,
-                    Prefix: ''
-                };
-
-                s3.listObjects(params, (err, data) => {
-                    if (err) {
-                        showError(`Failed to list S3 objects: ${err.message}`);
-                        return;
-                    }
-
-                    const modelItems = document.getElementById('modelItems');
-                    modelItems.innerHTML = '';
-
-                    if (data.Contents && data.Contents.length > 0) {
-                        data.Contents.forEach((item) => {
-                            if (item.Key.match(/\.(gltf|glb|fbx|obj)$/i)) {
-                                const div = document.createElement('div');
-                                div.className = 'model-item';
-                                div.textContent = item.Key;
-                                div.onclick = () => {
-                                    document.getElementById('modelUrl').value = item.Key;
-                                    loadModel();
-                                };
-                                modelItems.appendChild(div);
-                            }
-                        });
-                        hideError();
-                    } else {
-                        showError('No 3D models found in S3');
-                    }
+                // Add animation on load
+                modelEntity.addEventListener('model-loaded', () => {
+                    showStatus('✓ Model loaded successfully!');
+                    // Auto-rotate animation
+                    modelEntity.setAttribute('animation', {
+                        property: 'rotation',
+                        dur: 4000,
+                        loop: true,
+                        to: '0 360 0'
+                    });
                 });
+
+                modelEntity.addEventListener('error', (err) => {
+                    showStatus('Failed to load model: ' + err.message, true);
+                });
+
+                modelContainer.appendChild(modelEntity);
+                currentModel = modelEntity;
+
             } catch (error) {
-                showError(`Error listing models: ${error.message}`);
+                console.error('Error loading model:', error);
+                showStatus('Error: ' + error.message, true);
+            } finally {
+                loadBtn.disabled = false;
             }
         }
 
-        // UI Helper functions
-        function showStatus(message) {
-            const status = document.getElementById('status');
-            status.textContent = message;
-            status.classList.add('active');
-        }
-
-        function hideStatus() {
-            const status = document.getElementById('status');
-            status.classList.remove('active');
-        }
-
-        function showError(message) {
-            const error = document.getElementById('error');
-            error.textContent = message;
-            error.classList.add('active');
-        }
-
-        function hideError() {
-            const error = document.getElementById('error');
-            error.classList.remove('active');
+        // Clear current model
+        function clearModel() {
+            if (currentModel) {
+                currentModel.remove();
+                currentModel = null;
+                showStatus('Model cleared');
+            }
         }
 
         // Event listeners
-        document.getElementById('loadBtn').addEventListener('click', loadModel);
-        document.getElementById('clearBtn').addEventListener('click', () => {
-            if (loadedModel) {
-                scene.remove(loadedModel);
-                loadedModel = null;
-                hideStatus();
-                hideError();
-                document.getElementById('modelUrl').value = '';
+        loadBtn.addEventListener('click', loadModelFromAWS);
+        clearBtn.addEventListener('click', clearModel);
+
+        // Allow Enter key to load model
+        modelKeyInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadModelFromAWS();
             }
         });
 
-        // Initialize AR on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            initAR();
-            listS3Models();
-
-            // Check for model parameter in URL
-            const modelParam = getQueryParam('model');
-            if (modelParam) {
-                document.getElementById('modelUrl').value = modelParam;
-                // Delay to ensure AR is fully initialized
-                setTimeout(() => {
-                    loadModel();
-                }, 1000);
-            }
-        });
+        // Initialize
+        showStatus('Ready to load models');
     </script>
 </body>
 </html>
