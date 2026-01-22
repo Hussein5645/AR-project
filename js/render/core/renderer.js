@@ -1,10 +1,17 @@
 export function createWebGLContext(opts = {}) {
   const canvas = document.createElement('canvas');
-  // create a lightweight dummy context if possible
+  let gl = null;
   try {
-    canvas.getContext('webgl2') || canvas.getContext('webgl');
-  } catch (e) {}
-  return { canvas };
+    gl = canvas.getContext('webgl2', { xrCompatible: !!opts.xrCompatible }) ||
+         canvas.getContext('webgl', { xrCompatible: !!opts.xrCompatible });
+  } catch (e) {
+    gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  }
+  if (!gl) {
+    throw new Error('Unable to create WebGL context');
+  }
+  gl.canvas = canvas;
+  return gl;
 }
 
 export class Renderer {
