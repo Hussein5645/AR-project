@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Basic Web AR</title>
+  <title>Markerless Web AR</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <!-- AR.js -->
+  <!-- AR.js with WebXR -->
   <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
+
+  <!-- Gesture Detector -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe-gesture-detector@5.0.1/dist/aframe-gesture-detector.min.js"></script>
 
   <style>
     body { margin: 0; overflow: hidden; }
@@ -16,64 +19,125 @@
 </head>
 
 <body>
-  <a-scene
-    embedded
-    arjs="sourceType: webcam; debugUIEnabled: false;"
-    renderer="logarithmicDepthBuffer: true;"
-  >
+<a-scene
+  embedded
+  renderer="colorManagement: true;"
+  xr-mode-ui="enabled: true"
+  arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
+  webxr="requiredFeatures: hit-test"
+>
 
-    <!-- Marker -->
-    <a-marker preset="hiro">
-      <a-entity
-        id="ar-model"
-        scale="0.5 0.5 0.5"
-        rotation="0 180 0"
-      ></a-entity>
-    </a-marker>
+  <!-- Camera -->
+  <a-camera
+    position="0 1.6 0"
+    look-controls="enabled: false"
+  ></a-camera>
 
-    <!-- Camera -->
-    <a-entity camera></a-entity>
+  <!-- Reticle -->
+  <a-entity
+    id="reticle"
+    geometry="primitive: ring; radiusInner: 0.05; radiusOuter: 0.06"
+    material="color: #00ffcc; shader: flat"
+    rotation="-90 0 0"
+    visible="false"
+  ></a-entity>
 
-  </a-scene>
+  <!-- Model (hidden until placed) -->
+  <a-entity
+    id="ar-model"
+    visible="false"
+    scale="0.5 0.5 0.5"
+    gesture-handler
+  ></a-entity>
 
-  <!-- YOUR LOADING LOGIC -->
-  <script>
-    function getQueryParam(name) {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get(name);
-    }
+</a-scene>
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const modelEntity = document.getElementById('ar-model');
-
-      // Prefer sessionStorage set by index.html
-      let modelUrl = sessionStorage.getItem('currentModelUrl');
-
-      // Fallback: query param
-      if (!modelUrl) {
-        const modelKey = getQueryParam('model');
-
-        if (
-          modelKey &&
-          window.AWS_CONFIG &&
-          AWS_CONFIG.bucketName &&
-          AWS_CONFIG.region
-        ) {
-          modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-        } else if (modelKey) {
-          modelUrl = modelKey;
-        }
-      }
-
-      if (modelUrl) {
-        modelEntity.setAttribute('gltf-model', modelUrl);
-      } else {
-        console.warn(
-          'No model URL found. Open AR from index.html first.'
-        );
-      }
+<!-- Gesture logic -->
+<script>
+AFRAME.registerComponent('gesture-handler', {
+  schema: { enabled: { default: true } },
+  init() {
+    this.el.sceneEl.addEventListener('onefingermove', e => {
+      this.el.object3D.rotation.y += e.detail.positionChange.x * 0.01;
     });
-  </script>
+
+    this.el.sceneEl.addEventListener('twofingermove', e => {
+      const scale = this.el.object3D.scale.x + e.detail.spreadChange / 200;
+      const clamped = Math.min(Math.max(scale, 0.1), 3);
+      this.el.object3D.scale.set(clamped, clamped, clamped);
+    });
+  }
+});
+</script>
+
+<!-- Hit-test + tap placement -->
+<script>
+const scene = document.querySelector('a-scene');
+const reticle = document.getElementById('reticle');
+const model = document.getElementById('ar-model');
+
+scene.addEventListener('enter-vr', async () => {
+  const xrSession = scene.renderer.xr.getSession();
+  const viewerSpace = await xrSession.requestReferenceSpace('viewer');
+  const hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+  const refSpace = await xrSession.requestReferenceSpace('local');
+
+  scene.renderer.setAnimationLoop((time, frame) => {
+    if (!frame) return;
+    const hits = frame.getHitTestResults(hitTestSource);
+
+    if (hits.length > 0) {
+      const pose = hits[0].getPose(refSpace);
+      reticle.object3D.position.copy(pose.transform.position);
+      reticle.object3D.visible = true;
+    } else {
+      reticle.object3D.visible = false;
+    }
+  });
+});
+
+// Tap to place
+scene.addEventListener('click', () => {
+  if (!reticle.object3D.visible) return;
+
+  model.object3D.position.copy(reticle.object3D.position);
+  model.object3D.visible = true;
+});
+</script>
+
+<!-- ✅ YOUR MODEL LOADING LOGIC -->
+<script>
+function getQueryParam(name) {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get(name);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const modelEntity = document.getElementById('ar-model');
+
+  let modelUrl = sessionStorage.getItem('currentModelUrl');
+
+  if (!modelUrl) {
+    const modelKey = getQueryParam('model');
+    if (
+      modelKey &&
+      window.AWS_CONFIG &&
+      AWS_CONFIG.bucketName &&
+      AWS_CONFIG.region
+    ) {
+      modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+    } else if (modelKey) {
+      modelUrl = modelKey;
+    }
+  }
+
+  if (modelUrl) {
+    modelEntity.setAttribute('gltf-model', modelUrl);
+  } else {
+    console.warn('No model URL found');
+  }
+});
+</script>
 
 </body>
 </html>
