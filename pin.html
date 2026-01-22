@@ -190,28 +190,38 @@
                     let rootUrl = "";
                     let fileName = "";
                     if (typeof modelUrl === 'string') {
-                        try {
-                            // If modelUrl is an absolute or relative URL, use URL to parse
-                            const parsed = new URL(modelUrl, window.location.href);
-                            const lastSlash = parsed.pathname.lastIndexOf('/');
-                            if (lastSlash !== -1) {
-                                // Preserve full origin + path as rootUrl
-                                rootUrl = parsed.origin + parsed.pathname.substring(0, lastSlash + 1);
-                                fileName = parsed.pathname.substring(lastSlash + 1) + (parsed.search || parsed.hash || "");
-                            } else {
-                                rootUrl = parsed.origin + "/";
-                                fileName = parsed.pathname + (parsed.search || parsed.hash || "");
+                        // If it looks like a full URL (contains ://) or an absolute path, parse it.
+                        const knownExt = /\.(gltf|glb|babylon|obj|stl|ply|sog)$/i;
+
+                        const looksLikeUrl = /:\/\//.test(modelUrl) || modelUrl.startsWith("/");
+                        const hasKnownExt = knownExt.test(modelUrl.split(/[?#]/)[0]);
+
+                        if (looksLikeUrl || hasKnownExt) {
+                            try {
+                                const parsed = new URL(modelUrl, window.location.href);
+                                const lastSlash = parsed.pathname.lastIndexOf('/');
+                                if (lastSlash !== -1) {
+                                    rootUrl = parsed.origin + parsed.pathname.substring(0, lastSlash + 1);
+                                    fileName = parsed.pathname.substring(lastSlash + 1) + (parsed.search || parsed.hash || "");
+                                } else {
+                                    rootUrl = parsed.origin + "/";
+                                    fileName = parsed.pathname + (parsed.search || parsed.hash || "");
+                                }
+                            } catch (e) {
+                                // fallback: treat as simple file path
+                                const lastSlash = modelUrl.lastIndexOf('/');
+                                if (lastSlash !== -1) {
+                                    rootUrl = modelUrl.substring(0, lastSlash + 1);
+                                    fileName = modelUrl.substring(lastSlash + 1);
+                                } else {
+                                    rootUrl = "";
+                                    fileName = modelUrl;
+                                }
                             }
-                        } catch (e) {
-                            // Not a valid URL object (could be a bare key or relative path)
-                            const lastSlash = modelUrl.lastIndexOf('/');
-                            if (lastSlash !== -1) {
-                                rootUrl = modelUrl.substring(0, lastSlash + 1);
-                                fileName = modelUrl.substring(lastSlash + 1);
-                            } else {
-                                rootUrl = "";
-                                fileName = modelUrl;
-                            }
+                        } else {
+                            // Bare key (no extension) — don't try to interpret as page URL
+                            rootUrl = "";
+                            fileName = modelUrl;
                         }
                     }
 
