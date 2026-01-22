@@ -53,13 +53,40 @@
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.8);
-            display: flex;
+            display: none;
             justify-content: center;
             align-items: center;
             z-index: 200;
             color: #fff;
             font-size: 18px;
             flex-direction: column;
+        }
+
+        #load-model-button {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #28a745;
+            color: #fff;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            z-index: 100;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            display: none;
+            transition: background 0.3s;
+        }
+
+        #load-model-button:hover {
+            background: #218838;
+        }
+
+        #load-model-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
         }
 
         .spinner {
@@ -164,8 +191,11 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="spinner"></div>
-        <div id="loading-text">Loading AR Experience...</div>
+        <div id="loading-text">Loading 3D model...</div>
     </div>
+
+    <!-- Load Model Button -->
+    <button id="load-model-button" onclick="startLoadingModel()">Load Model</button>
 
     <!-- Info Panel -->
     <div id="info-panel">
@@ -230,6 +260,7 @@
         const bucketName = AWS_CONFIG_DATA.bucketName;
         const loadingScreen = document.getElementById('loading-screen');
         const loadingText = document.getElementById('loading-text');
+        const loadModelButton = document.getElementById('load-model-button');
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
         const infoPanel = document.getElementById('info-panel');
@@ -274,10 +305,8 @@
                         statusDot.classList.add('active');
                         statusDot.classList.remove('inactive');
                         
-                        // Place model at user location + some offset
-                        if (modelLoaded) {
-                            setModelLocation();
-                        }
+                        // Show load model button
+                        loadModelButton.style.display = 'block';
 
                         // Watch position for continuous updates
                         if (watchId === null) {
@@ -389,12 +418,15 @@
 
         // Load model from AWS
         function loadModelFromAWS(prefix) {
+            loadingScreen.style.display = 'flex';
             loadingText.textContent = 'Fetching model from AWS...';
+            loadModelButton.disabled = true;
 
             s3.listObjectsV2({ Bucket: bucketName, Prefix: prefix }, (err, data) => {
                 if (err) {
                     console.error('Error fetching bucket contents:', err);
                     loadingText.textContent = 'Error: Could not fetch model';
+                    loadModelButton.disabled = false;
                     return;
                 }
 
@@ -414,10 +446,12 @@
                         loadGLTFModel(fileUrl);
                     } else {
                         loadingText.textContent = 'Error: Unsupported file format (Only GLB/GLTF supported)';
+                        loadModelButton.disabled = false;
                         console.error('Unsupported file format:', fileExtension);
                     }
                 } else {
                     loadingText.textContent = 'Error: Model not found';
+                    loadModelButton.disabled = false;
                     console.error('No model found with prefix:', prefix);
                 }
             });
@@ -457,6 +491,7 @@
                 }
                 
                 loadingScreen.style.display = 'none';
+                loadModelButton.style.display = 'none';
                 modelLoaded = true;
                 
                 // Update UI
@@ -466,6 +501,8 @@
             gltfModel.addEventListener('error', (event) => {
                 console.error('Error loading model:', event);
                 loadingText.textContent = 'Error: Could not load 3D model. Check console.';
+                loadModelButton.disabled = false;
+                loadModelButton.style.display = 'block';
             });
 
             modelEntity.appendChild(gltfModel);
@@ -486,16 +523,24 @@
             window.history.back();
         }
 
+        // Start loading model
+        function startLoadingModel() {
+            const modelKey = getQueryParam('model');
+            if (modelKey) {
+                loadModelFromAWS(modelKey);
+            } else {
+                alert('No model key specified. Use ?model=KEY');
+            }
+        }
+
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
             // Initialize GPS
             initGPS();
 
-            // Load model from URL parameter
+            // Don't auto-load model - wait for button click
             const modelKey = getQueryParam('model');
-            if (modelKey) {
-                loadModelFromAWS(modelKey);
-            } else {
+            if (!modelKey) {
                 loadingText.textContent = 'Error: No model specified. Use ?model=KEY';
             }
 
