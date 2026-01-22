@@ -1,289 +1,79 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, user-scalable=no">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta charset="UTF-8" />
+  <title>Basic Web AR</title>
 
-  <title>WebXR Anchors – Dynamic Model</title>
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <link rel="stylesheet" href="css/common.css">
+  <!-- AR.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; }
+  </style>
 </head>
 
 <body>
-<header>
-  <details open>
-    <summary>Anchors</summary>
-    <p>
-      Tap to place anchored models in the real world.
-      <a class="back" href="./">Back</a>
-    </p>
-  </details>
-</header>
+  <a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false;"
+    renderer="logarithmicDepthBuffer: true;"
+  >
 
-<script type="module">
-/* ============================================================
-   IMPORTS (OFFICIAL IMMERSIVE WEB STACK)
-============================================================ */
-import { WebXRButton } from './js/util/webxr-button.js';
-import { Scene } from './js/render/scenes/scene.js';
-import { Renderer, createWebGLContext }
-  from './js/render/core/renderer.js';
-import { SkyboxNode } from './js/render/nodes/skybox.js';
-import { InlineViewerHelper }
-  from './js/util/inline-viewer-helper.js';
-import { Gltf2Node }
-  from './js/render/nodes/gltf2.js';
-import { QueryArgs }
-  from './js/util/query-args.js';
+    <!-- Marker -->
+    <a-marker preset="hiro">
+      <a-entity
+        id="ar-model"
+        scale="0.5 0.5 0.5"
+        rotation="0 180 0"
+      ></a-entity>
+    </a-marker>
 
-import WebXRPolyfill
-  from './js/third-party/webxr-polyfill/build/webxr-polyfill.module.js';
+    <!-- Camera -->
+    <a-entity camera></a-entity>
 
-if (QueryArgs.getBool('usePolyfill', true)) {
-  new WebXRPolyfill();
-}
+  </a-scene>
 
-/* ============================================================
-   YOUR MODEL LOADING LOGIC (UNCHANGED IN BEHAVIOR)
-============================================================ */
-function getQueryParam(name) {
-  return new URLSearchParams(window.location.search).get(name);
-}
-
-let MODEL_URL = sessionStorage.getItem('currentModelUrl');
-
-if (!MODEL_URL) {
-  const modelKey = getQueryParam('model');
-
-  if (modelKey &&
-      window.AWS_CONFIG &&
-      AWS_CONFIG.bucketName &&
-      AWS_CONFIG.region) {
-
-    MODEL_URL =
-      `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-
-  } else if (modelKey) {
-    MODEL_URL = modelKey;
-  }
-}
-
-if (!MODEL_URL) {
-  console.warn('⚠ No model URL found. Anchors will not place models.');
-} else {
-  console.log('✅ Using model:', MODEL_URL);
-}
-
-/* ============================================================
-   XR + RENDERER GLOBALS
-============================================================ */
-let xrButton = null;
-let xrImmersiveRefSpace = null;
-let inlineViewerHelper = null;
-
-let gl = null;
-let renderer = null;
-let scene = new Scene();
-
-let skybox = new SkyboxNode({
-  url: 'media/textures/milky-way-4k.png'
-});
-scene.addNode(skybox);
-
-const MAX_ANCHORED_OBJECTS = 30;
-let anchoredObjects = [];
-let all_previous_anchors = new Set();
-
-/* ============================================================
-   XR INITIALIZATION
-============================================================ */
-function initXR() {
-  xrButton = new WebXRButton({
-    onRequestSession,
-    onEndSession,
-    textEnterXRTitle: "START AR",
-    textXRNotFoundTitle: "AR NOT FOUND",
-    textExitXRTitle: "EXIT AR"
-  });
-
-  document.querySelector('header')
-    .appendChild(xrButton.domElement);
-
-  if (!navigator.xr) return;
-
-  navigator.xr.isSessionSupported('immersive-ar')
-    .then((supported) => {
-      xrButton.enabled = supported;
-    });
-
-  navigator.xr.requestSession('inline')
-    .then(onSessionStarted);
-}
-
-function onRequestSession() {
-  return navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['anchors']
-  }).then((session) => {
-    xrButton.setSession(session);
-    session.isImmersive = true;
-    onSessionStarted(session);
-  });
-}
-
-/* ============================================================
-   GL INITIALIZATION
-============================================================ */
-function initGL() {
-  if (gl) return;
-
-  gl = createWebGLContext({ xrCompatible: true });
-  document.body.appendChild(gl.canvas);
-
-  function resize() {
-    gl.canvas.width =
-      gl.canvas.clientWidth * window.devicePixelRatio;
-    gl.canvas.height =
-      gl.canvas.clientHeight * window.devicePixelRatio;
-  }
-
-  window.addEventListener('resize', resize);
-  resize();
-
-  renderer = new Renderer(gl);
-  scene.setRenderer(renderer);
-}
-
-/* ============================================================
-   SESSION HANDLING
-============================================================ */
-function onSessionStarted(session) {
-  session.addEventListener('end', onSessionEnded);
-  session.addEventListener('select', onSelect);
-
-  skybox.visible = !session.isImmersive;
-
-  initGL();
-
-  scene.inputRenderer.useProfileControllerMeshes(session);
-  session.updateRenderState({
-    baseLayer: new XRWebGLLayer(session, gl)
-  });
-
-  const refType = session.isImmersive ? 'local' : 'viewer';
-
-  session.requestReferenceSpace(refType).then((refSpace) => {
-    if (session.isImmersive) {
-      xrImmersiveRefSpace = refSpace;
-    } else {
-      inlineViewerHelper =
-        new InlineViewerHelper(gl.canvas, refSpace);
+  <!-- YOUR LOADING LOGIC -->
+  <script>
+    function getQueryParam(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
     }
-    session.requestAnimationFrame(onXRFrame);
-  });
-}
 
-function onEndSession() {
-  xrButton.setSession(null);
-}
+    document.addEventListener('DOMContentLoaded', () => {
+      const modelEntity = document.getElementById('ar-model');
 
-function onSessionEnded() {
-  skybox.visible = true;
-}
+      // Prefer sessionStorage set by index.html
+      let modelUrl = sessionStorage.getItem('currentModelUrl');
 
-/* ============================================================
-   ANCHOR + MODEL CREATION
-============================================================ */
-function addAnchoredObject(anchor) {
-  if (!MODEL_URL) return;
+      // Fallback: query param
+      if (!modelUrl) {
+        const modelKey = getQueryParam('model');
 
-  anchor.context = {};
-
-  const model = new Gltf2Node({ url: MODEL_URL });
-  model.scale = [0.4, 0.4, 0.4];
-
-  scene.addNode(model);
-
-  anchor.context.sceneObject = model;
-  model.anchor = anchor;
-
-  anchoredObjects.push(model);
-
-  if (anchoredObjects.length > MAX_ANCHORED_OBJECTS) {
-    const old = anchoredObjects.shift();
-    scene.removeNode(old);
-    old.anchor.delete();
-  }
-}
-
-function onSelect(event) {
-  const frame = event.frame;
-  const session = frame.session;
-  const inputSource = event.inputSource;
-
-  let pose = new XRRigidTransform(
-    { x: 0, y: 0, z: -1 },
-    { x: 0, y: 0, z: 0, w: 1 }
-  );
-
-  if (session.isImmersive) {
-    frame.createAnchor(pose, inputSource.targetRaySpace)
-      .then(addAnchoredObject)
-      .catch(err =>
-        console.error('Anchor failed:', err)
-      );
-  }
-}
-
-/* ============================================================
-   FRAME LOOP
-============================================================ */
-function onXRFrame(t, frame) {
-  const session = frame.session;
-  const refSpace = session.isImmersive
-    ? xrImmersiveRefSpace
-    : inlineViewerHelper.referenceSpace;
-
-  const pose = frame.getViewerPose(refSpace);
-
-  const tracked = frame.trackedAnchors;
-
-  if (tracked) {
-    all_previous_anchors.forEach(anchor => {
-      if (!tracked.has(anchor)) {
-        scene.removeNode(anchor.sceneObject);
+        if (
+          modelKey &&
+          window.AWS_CONFIG &&
+          AWS_CONFIG.bucketName &&
+          AWS_CONFIG.region
+        ) {
+          modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+        } else if (modelKey) {
+          modelUrl = modelKey;
+        }
       }
-    });
 
-    tracked.forEach(anchor => {
-      if (!anchor.context) return;
-      const p = frame.getPose(anchor.anchorSpace, refSpace);
-      if (p) {
-        anchor.context.sceneObject.matrix =
-          p.transform.matrix;
-        anchor.context.sceneObject.visible = true;
+      if (modelUrl) {
+        modelEntity.setAttribute('gltf-model', modelUrl);
       } else {
-        anchor.context.sceneObject.visible = false;
+        console.warn(
+          'No model URL found. Open AR from index.html first.'
+        );
       }
     });
+  </script>
 
-    all_previous_anchors = tracked;
-  }
-
-  scene.updateInputSources(frame, refSpace);
-  scene.startFrame();
-  session.requestAnimationFrame(onXRFrame);
-  scene.drawXRFrame(frame, pose);
-  scene.endFrame();
-}
-
-/* ============================================================
-   START APP
-============================================================ */
-initXR();
-
-</script>
 </body>
 </html>
