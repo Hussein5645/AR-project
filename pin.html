@@ -1,75 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>AR.js GLB Model</title>
+<meta charset="UTF-8" />
+<title>AR Surface Placement</title>
 
-  <!-- A-Frame -->
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+<script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
 
-  <!-- AR.js for A-Frame -->
-  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
-
-  <style>
-    body { margin: 0; overflow: hidden; }
-  </style>
+<style>
+body { margin: 0; overflow: hidden; touch-action: none; }
+</style>
 </head>
 
 <body>
-  <a-scene
-    embedded
-    arjs="sourceType: webcam; debugUIEnabled: false;"
-    renderer="colorManagement: true; physicallyCorrectLights"
-  >
 
-    <!-- Camera -->
-    <a-entity camera></a-entity>
+<a-scene
+  embedded
+  vr-mode-ui="enabled:false"
+  renderer="colorManagement:true"
+  arjs="trackingMethod: best; debugUIEnabled: false"
+  webxr="requiredFeatures: hit-test">
 
-    <!-- Marker (Hiro marker) -->
-    <a-marker preset="hiro">
+  <!-- Camera -->
+  <a-camera look-controls="enabled:false"></a-camera>
 
-      <!-- GLB Model -->
-      <a-entity
-        id="ar-model"
-        gltf-model=""
-        scale="0.5 0.5 0.5"
-        position="0 0 0"
-        rotation="0 180 0">
-      </a-entity>
+  <!-- Reticle -->
+  <a-entity
+    id="reticle"
+    arjs-hit-test
+    geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.05"
+    material="color:#00ffcc; shader:flat"
+    rotation="-90 0 0"
+    visible="false">
+  </a-entity>
 
-    </a-marker>
+  <!-- TEMPLATE MODEL (follows reticle before placement) -->
+  <a-entity
+    id="ar-model"
+    scale="0.4 0.4 0.4"
+    visible="false">
+  </a-entity>
 
-  </a-scene>
-  <script>
-    function getQueryParam(name) {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get(name);
+</a-scene>
+
+<script>
+/* -------------------------------
+   YOUR MODEL LOADING LOGIC
+--------------------------------*/
+function getQueryParam(name) {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get(name);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const modelEntity = document.getElementById('ar-model');
+
+  let modelUrl = sessionStorage.getItem('currentModelUrl');
+
+  if (!modelUrl) {
+    const modelKey = getQueryParam('model');
+    if (modelKey && window.AWS_CONFIG && AWS_CONFIG.bucketName && AWS_CONFIG.region) {
+      modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
+    } else if (modelKey) {
+      modelUrl = modelKey;
     }
+  }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const modelEntity = document.getElementById('ar-model');
+  if (modelUrl) {
+    modelEntity.setAttribute('gltf-model', modelUrl);
+  } else {
+    console.warn('No model URL found.');
+  }
+});
+</script>
 
-      // Prefer sessionStorage set by index.html
-      let modelUrl = sessionStorage.getItem('currentModelUrl');
+<script>
+/* -------------------------------
+   AR INTERACTION LOGIC
+--------------------------------*/
+const scene = document.querySelector('a-scene');
+const reticle = document.querySelector('#reticle');
+const templateModel = document.querySelector('#ar-model');
 
-      // Fallback: if a `model` query param exists, try to build an S3 URL
-      if (!modelUrl) {
-        const modelKey = getQueryParam('model');
-        if (modelKey && window.AWS_CONFIG && AWS_CONFIG.bucketName && AWS_CONFIG.region) {
-          modelUrl = `https://${AWS_CONFIG.bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${modelKey}`;
-        } else if (modelKey) {
-          // If only the key is present, use it directly (useful if key is a full path)
-          modelUrl = modelKey;
-        }
-      }
+let currentModel = null;
+let lastX = 0;
+let isDragging = false;
+let initialDistance = 0;
 
-      if (modelUrl) {
-        // A-Frame accepts either a plain URL or url(...) syntax
-        modelEntity.setAttribute('gltf-model', modelUrl);
-      } else {
-        console.warn('No model URL found in sessionStorage or query param. Open the model from index.html first.');
-      }
-    });
-  </script>
+/* FOLLOW RETICLE BEFORE TAP */
+scene.addEventListener('frame', () => {
+  if (reticle.object3D.visible && templateModel.getAttribute('gltf-model')) {
+    templateModel.object3D.position.copy(reticle.object3D.position);
+    templateModel.setAttribute('visible', true);
+  }
+});
+
+/* TAP TO PLACE (MULTIPLE MODELS) */
+scene.addEventListener('click', () => {
+  if (!reticle.object3D.visible) return;
+
+  const placedModel = document.createElement('a-entity');
+
+  placedModel.setAttribute(
+    'gltf-model',
+    templateModel.getAttribute('gltf-model')
+  );
+  placedModel.setAttribute('scale', templateModel.getAttribute('scale'));
+
+  placedModel.object3D.position.copy(reticle.object3D.position);
+  placedModel.object3D.quaternion.copy(reticle.object3D.quaternion);
+
+  scene.appendChild(placedModel);
+  currentModel = placedModel;
+});
+
+/* TOUCH CONTROLS */
+window.addEventListener('touchstart', e => {
+  if (!currentModel) return;
+
+  if (e.touches.length === 1) {
+    isDragging = true;
+    lastX = e.touches[0].clientX;
+  }
+
+  if (e.touches.length === 2) {
+    initialDistance = getDistance(e.touches);
+  }
+});
+
+window.addEventListener('touchmove', e => {
+  if (!currentModel) return;
+
+  /* ROTATE */
+  if (isDragging && e.touches.length === 1) {
+    const dx = e.touches[0].clientX - lastX;
+    currentModel.object3D.rotation.y += dx * 0.005;
+    lastX = e.touches[0].clientX;
+  }
+
+  /* SCALE */
+  if (e.touches.length === 2) {
+    const newDist = getDistance(e.touches);
+    const scaleFactor = newDist / initialDistance;
+    currentModel.object3D.scale.multiplyScalar(scaleFactor);
+    initialDistance = newDist;
+  }
+});
+
+window.addEventListener('touchend', () => {
+  isDragging = false;
+});
+
+function getDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+</script>
+
 </body>
 </html>
