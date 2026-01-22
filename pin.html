@@ -2,325 +2,602 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR.js - Load Model from AWS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
+    <title>AR Model Viewer</title>
+    
+    <!-- AR.js and A-Frame -->
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/aframe-ar.js"></script>
-    <script src="aws-config.js"></script>
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1600.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/aframe-ar.js"></script>
+    
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            overflow: hidden;
             background: #000;
+            overflow: hidden;
         }
-        
-        #arScene {
-            width: 100%;
-            height: 100%;
-            display: block;
+
+        #arContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
         }
-        
-        #ui-container {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            right: 20px;
+
+        .ui-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             z-index: 100;
             display: flex;
-            flex-direction: column;
             gap: 10px;
-        }
-        
-        .control-group {
+            flex-wrap: wrap;
+            justify-content: center;
             background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
+            padding: 15px 20px;
             border-radius: 10px;
-            backdrop-filter: blur(10px);
         }
-        
-        label {
-            display: block;
-            color: #fff;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-        
-        input[type="text"] {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #00bfff;
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-        
-        input[type="text"]::placeholder {
-            color: rgba(255, 255, 255, 0.5);
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #00ff00;
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
-        }
-        
+
         button {
-            padding: 12px 20px;
+            padding: 10px 20px;
+            background: #007AFF;
+            color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            min-width: 80px;
         }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #00bfff 0%, #0080ff 100%);
-            color: #fff;
+
+        button:hover {
+            background: #0051D5;
+            transform: scale(1.05);
         }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 191, 255, 0.4);
+
+        button:active {
+            transform: scale(0.95);
         }
-        
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-        
-        .btn-primary:disabled {
-            background: #666;
+
+        button:disabled {
+            background: #555;
             cursor: not-allowed;
             opacity: 0.5;
         }
-        
-        .btn-secondary {
-            background: linear-gradient(135deg, #ff6b6b 0%, #ff4757 100%);
-            color: #fff;
-            margin-top: 5px;
+
+        .control-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
         }
-        
-        .btn-secondary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(255, 71, 87, 0.4);
-        }
-        
-        #status {
-            color: #00ff00;
+
+        .control-group label {
+            color: white;
             font-size: 12px;
-            padding: 10px;
-            background: rgba(0, 255, 0, 0.1);
-            border-left: 3px solid #00ff00;
-            border-radius: 3px;
-            display: none;
+            margin: 0 5px;
         }
-        
-        #status.error {
-            color: #ff6b6b;
-            background: rgba(255, 107, 107, 0.1);
-            border-left-color: #ff6b6b;
+
+        .control-group input[type="range"] {
+            width: 80px;
+            height: 4px;
+            cursor: pointer;
         }
-        
-        #status.show {
-            display: block;
-        }
-        
-        .info-panel {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 10px;
+
+        .status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
             color: #fff;
-            font-size: 12px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 14px;
             max-width: 300px;
-            backdrop-filter: blur(10px);
             z-index: 100;
+            font-family: 'Courier New', monospace;
         }
-        
-        .info-panel h3 {
-            margin-bottom: 10px;
-            color: #00bfff;
-        }
-        
-        .info-panel p {
+
+        .status-item {
             margin: 5px 0;
-            line-height: 1.5;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff0000;
+        }
+
+        .status-dot.active {
+            background: #00ff00;
+        }
+
+        .instructions {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #aaa;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 12px;
+            max-width: 250px;
+            z-index: 100;
+            line-height: 1.6;
+        }
+
+        .instructions strong {
+            color: #fff;
+        }
+
+        .controls-info {
+            background: rgba(0, 0, 0, 0.7);
+            color: #aaa;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        #error-message {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            z-index: 200;
+            display: none;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #00ff00;
+            width: 0%;
+            transition: width 0.3s ease;
         }
     </style>
 </head>
 <body>
-    <a-scene 
-        id="arScene"
-        embedded 
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: color_and_matrix; matrixCodeType: 3x3;">
-        <a-camera position="0 0 0"></a-camera>
-        <a-entity id="model-container" position="0 0 -5"></a-entity>
-    </a-scene>
+    <div id="arContainer">
+        <!-- A-Frame AR Scene -->
+        <a-scene 
+            embedded 
+            arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;"
+            renderer="antialias: true; alpha: true;"
+        >
+            <!-- Camera -->
+            <a-camera position="0 1.6 0" look-controls wasd-controls></a-camera>
 
-    <div id="ui-container">
-        <div class="control-group">
-            <label for="modelKey">Model S3 Key:</label>
-            <input 
-                type="text" 
-                id="modelKey" 
-                placeholder="e.g., models/chair.gltf" 
-                value="models/chair.gltf">
-            <button id="loadBtn" class="btn-primary">Load Model from AWS</button>
-            <button id="clearBtn" class="btn-secondary">Clear Model</button>
-            <div id="status"></div>
+            <!-- 3D Model Entity -->
+            <a-entity 
+                id="model" 
+                gltf-model=""
+                scale="1 1 1"
+                position="0 0 -2"
+                rotation="0 0 0"
+                geometry="primitive: box; width: 0.1; height: 0.1; depth: 0.1"
+                material="color: #0084FF; opacity: 0.5"
+            ></a-entity>
+
+            <!-- Placeholder for surface indicator -->
+            <a-entity 
+                id="surface-indicator"
+                geometry="primitive: plane; width: 1.5; height: 1.5"
+                material="color: #00ff00; opacity: 0.2; side: double"
+                position="0 0 -2"
+                rotation="-90 0 0"
+                visible="false"
+            ></a-entity>
+        </a-scene>
+    </div>
+
+    <!-- Status Panel -->
+    <div class="status">
+        <div class="status-item">
+            <span class="status-dot" id="camera-status"></span>
+            <span>Camera: <span id="camera-text">Initializing...</span></span>
+        </div>
+        <div class="status-item">
+            <span class="status-dot" id="model-status"></span>
+            <span>Model: <span id="model-text">Waiting for URL...</span></span>
+        </div>
+        <div class="status-item">
+            <span class="status-dot" id="tracking-status"></span>
+            <span>Tracking: <span id="tracking-text">Initializing...</span></span>
+        </div>
+        <div id="loading-progress" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <span id="progress-text">Loading model: 0%</span>
         </div>
     </div>
 
-    <div class="info-panel">
-        <h3>Controls</h3>
-        <p><strong>1.</strong> Point camera at QR code</p>
-        <p><strong>2.</strong> Enter S3 model key</p>
-        <p><strong>3.</strong> Click "Load Model"</p>
-        <p><strong>4.</strong> Model appears on surface</p>
+    <!-- Instructions Panel -->
+    <div class="instructions">
+        <strong>AR Controls:</strong><br>
+        🔷 Hold phone flat to detect surface<br>
+        👆 Tap to place model<br>
+        <strong>URL Parameter:</strong><br>
+        ?modelUrl=your-model-url.glb<br>
+        <strong>Example:</strong><br>
+        pin.html?modelUrl=https://...<br>
+        /model.glb
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message"></div>
+
+    <!-- Controls -->
+    <div class="ui-overlay">
+        <button id="place-btn" disabled>📍 Place on Surface</button>
+        
+        <div class="control-group">
+            <label>Scale:</label>
+            <input type="range" id="scale-input" min="0.1" max="5" step="0.1" value="1" disabled>
+            <span id="scale-value">1</span>x
+        </div>
+
+        <div class="control-group">
+            <label>Rotate Y:</label>
+            <input type="range" id="rotate-input" min="0" max="360" step="5" value="0" disabled>
+        </div>
+
+        <button id="reset-btn" disabled>🔄 Reset</button>
+        <button id="screenshot-btn" disabled>📸 Screenshot</button>
+
+        <div class="controls-info">
+            Rotate device to move model • Use sliders for precise control
+        </div>
     </div>
 
     <script>
-        // Initialize AWS SDK
-        AWS.config.update({
-            accessKeyId: AWS_CONFIG.accessKeyId,
-            secretAccessKey: AWS_CONFIG.secretAccessKey,
-            region: AWS_CONFIG.region
-        });
+        // ==================== Configuration ====================
+        const CONFIG = {
+            defaultScale: 1,
+            maxScale: 5,
+            minScale: 0.1,
+            scaleStep: 0.1,
+            placementDistance: 2,
+        };
 
-        const s3 = new AWS.S3();
-        const bucket = AWS_CONFIG.bucketName;
-        let currentModel = null;
+        // ==================== State Management ====================
+        const state = {
+            modelUrl: null,
+            modelLoaded: false,
+            modelPlaced: false,
+            cameraReady: false,
+            trackingInitialized: false,
+            surfaceDetected: false,
+            currentScale: CONFIG.defaultScale,
+            currentRotation: { x: 0, y: 0, z: 0 },
+        };
 
-        const modelKeyInput = document.getElementById('modelKey');
-        const loadBtn = document.getElementById('loadBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const statusDiv = document.getElementById('status');
-        const modelContainer = document.getElementById('model-container');
+        // ==================== DOM Elements ====================
+        const elements = {
+            model: document.getElementById('model'),
+            surfaceIndicator: document.getElementById('surface-indicator'),
+            placeBtn: document.getElementById('place-btn'),
+            scaleInput: document.getElementById('scale-input'),
+            scaleValue: document.getElementById('scale-value'),
+            rotateInput: document.getElementById('rotate-input'),
+            resetBtn: document.getElementById('reset-btn'),
+            screenshotBtn: document.getElementById('screenshot-btn'),
+            cameraStatus: document.getElementById('camera-status'),
+            cameraText: document.getElementById('camera-text'),
+            modelStatus: document.getElementById('model-status'),
+            modelText: document.getElementById('model-text'),
+            trackingStatus: document.getElementById('tracking-status'),
+            trackingText: document.getElementById('tracking-text'),
+            errorMessage: document.getElementById('error-message'),
+            loadingProgress: document.getElementById('loading-progress'),
+            progressFill: document.getElementById('progress-fill'),
+            progressText: document.getElementById('progress-text'),
+        };
 
-        // Utility function to show status messages
-        function showStatus(message, isError = false) {
-            statusDiv.textContent = message;
-            statusDiv.classList.add('show');
-            statusDiv.classList.toggle('error', isError);
+        // ==================== URL Parameter Extraction ====================
+        function getModelUrlFromParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('modelUrl');
+        }
+
+        // ==================== Status Updates ====================
+        function updateStatus(type, status, text) {
+            const statusElement = elements[`${type}Status`];
+            const textElement = elements[`${type}Text`];
             
-            if (!isError) {
-                setTimeout(() => {
-                    statusDiv.classList.remove('show');
-                }, 3000);
+            if (statusElement) {
+                statusElement.classList.toggle('active', status);
+            }
+            if (textElement) {
+                textElement.textContent = text;
             }
         }
 
-        // Generate signed URL from AWS S3
-        async function getModelUrl(key) {
-            return new Promise((resolve, reject) => {
-                const params = {
-                    Bucket: bucket,
-                    Key: key,
-                    Expires: 3600 // URL valid for 1 hour
-                };
-
-                s3.getSignedUrl('getObject', params, (err, url) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(url);
-                    }
-                });
-            });
+        function showError(message) {
+            elements.errorMessage.textContent = message;
+            elements.errorMessage.style.display = 'block';
+            console.error(message);
+            setTimeout(() => {
+                elements.errorMessage.style.display = 'none';
+            }, 5000);
         }
 
-        // Load model from AWS S3
-        async function loadModelFromAWS() {
-            const key = modelKeyInput.value.trim();
+        function showLoadingProgress(percent) {
+            elements.loadingProgress.style.display = 'block';
+            elements.progressFill.style.width = percent + '%';
+            elements.progressText.textContent = `Loading model: ${Math.round(percent)}%`;
+        }
 
-            if (!key) {
-                showStatus('Please enter a valid S3 key', true);
+        function hideLoadingProgress() {
+            elements.loadingProgress.style.display = 'none';
+        }
+
+        // ==================== Model Loading ====================
+        async function loadModel(url) {
+            if (!url) {
+                updateStatus('model', false, 'No URL provided');
+                showError('No model URL provided. Use: ?modelUrl=your-url');
                 return;
             }
 
-            loadBtn.disabled = true;
-            showStatus('Fetching model from AWS...');
+            updateStatus('model', false, 'Loading...');
+            state.modelUrl = url;
 
             try {
-                const url = await getModelUrl(key);
-                showStatus('Model URL generated, loading model...');
+                showLoadingProgress(0);
 
-                // Remove existing model if any
-                const existingModel = modelContainer.querySelector('a-entity[gltf-model]');
-                if (existingModel) {
-                    existingModel.remove();
-                }
+                // Simulate progress for better UX
+                const progressInterval = setInterval(() => {
+                    const currentPercent = parseFloat(elements.progressFill.style.width);
+                    if (currentPercent < 90) {
+                        showLoadingProgress(currentPercent + Math.random() * 20);
+                    }
+                }, 300);
 
-                // Create and add new model entity
-                const modelEntity = document.createElement('a-entity');
-                modelEntity.setAttribute('gltf-model', url);
-                modelEntity.setAttribute('scale', '1 1 1');
-                modelEntity.setAttribute('position', '0 -0.5 0');
-                modelEntity.setAttribute('rotation', '0 0 0');
+                // Load model with CORS handling
+                await new Promise((resolve, reject) => {
+                    const modelEntity = elements.model;
+                    
+                    const onLoad = () => {
+                        clearInterval(progressInterval);
+                        showLoadingProgress(100);
+                        state.modelLoaded = true;
+                        updateStatus('model', true, 'Ready to place');
+                        elements.placeBtn.disabled = false;
+                        setTimeout(hideLoadingProgress, 500);
+                        resolve();
+                    };
 
-                // Add animation on load
-                modelEntity.addEventListener('model-loaded', () => {
-                    showStatus('✓ Model loaded successfully!');
-                    // Auto-rotate animation
-                    modelEntity.setAttribute('animation', {
-                        property: 'rotation',
-                        dur: 4000,
-                        loop: true,
-                        to: '0 360 0'
-                    });
+                    const onError = () => {
+                        clearInterval(progressInterval);
+                        hideLoadingProgress();
+                        reject(new Error('Failed to load model. Check URL and CORS headers.'));
+                    };
+
+                    modelEntity.addEventListener('model-loaded', onLoad, { once: true });
+                    modelEntity.addEventListener('model-error', onError, { once: true });
+
+                    // Set timeout for loading
+                    setTimeout(() => {
+                        if (!state.modelLoaded) {
+                            onError();
+                        }
+                    }, 15000);
+
+                    modelEntity.setAttribute('gltf-model', url);
+                    modelEntity.setAttribute('visible', 'true');
                 });
-
-                modelEntity.addEventListener('error', (err) => {
-                    showStatus('Failed to load model: ' + err.message, true);
-                });
-
-                modelContainer.appendChild(modelEntity);
-                currentModel = modelEntity;
 
             } catch (error) {
-                console.error('Error loading model:', error);
-                showStatus('Error: ' + error.message, true);
-            } finally {
-                loadBtn.disabled = false;
+                showError(`Model loading failed: ${error.message}`);
+                updateStatus('model', false, 'Load failed');
             }
         }
 
-        // Clear current model
-        function clearModel() {
-            if (currentModel) {
-                currentModel.remove();
-                currentModel = null;
-                showStatus('Model cleared');
+        // ==================== Model Placement ====================
+        function placeModelOnSurface() {
+            if (!state.modelLoaded) {
+                showError('Model not loaded yet');
+                return;
+            }
+
+            state.modelPlaced = true;
+            
+            // Position model in front of camera at fixed distance
+            elements.model.setAttribute('position', `0 0 -${CONFIG.placementDistance}`);
+            elements.surfaceIndicator.setAttribute('position', `0 0 -${CONFIG.placementDistance}`);
+            elements.surfaceIndicator.setAttribute('visible', 'true');
+
+            // Enable controls
+            elements.placeBtn.textContent = '✓ Placed';
+            elements.placeBtn.disabled = true;
+            elements.scaleInput.disabled = false;
+            elements.rotateInput.disabled = false;
+            elements.resetBtn.disabled = false;
+            elements.screenshotBtn.disabled = false;
+
+            console.log('Model placed on surface');
+        }
+
+        // ==================== Model Controls ====================
+        function updateModelScale(scale) {
+            state.currentScale = parseFloat(scale);
+            elements.model.setAttribute('scale', `${scale} ${scale} ${scale}`);
+            elements.scaleValue.textContent = scale;
+        }
+
+        function updateModelRotation(angleY) {
+            state.currentRotation.y = parseFloat(angleY);
+            const { x, y, z } = state.currentRotation;
+            elements.model.setAttribute('rotation', `${x} ${y} ${z}`);
+        }
+
+        function resetModel() {
+            state.currentScale = CONFIG.defaultScale;
+            state.currentRotation = { x: 0, y: 0, z: 0 };
+            
+            elements.scaleInput.value = CONFIG.defaultScale;
+            elements.scaleValue.textContent = CONFIG.defaultScale;
+            elements.rotateInput.value = 0;
+            
+            updateModelScale(CONFIG.defaultScale);
+            updateModelRotation(0);
+            
+            console.log('Model reset to default');
+        }
+
+        // ==================== Screenshot Functionality ====================
+        function takeScreenshot() {
+            const scene = document.querySelector('a-scene').renderer;
+            scene.render(scene.getContext(), scene.getContext().canvas);
+            
+            const canvas = scene.getContext().canvas;
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `ar-model-${Date.now()}.png`;
+                link.click();
+                URL.revokeObjectURL(url);
+            }, 'image/png');
+        }
+
+        // ==================== Camera Initialization ====================
+        function initializeCamera() {
+            const scene = document.querySelector('a-scene');
+            
+            scene.addEventListener('loaded', () => {
+                updateStatus('camera', true, 'Camera Ready');
+                state.cameraReady = true;
+                console.log('Camera initialized');
+            });
+
+            // Try to get camera access
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(stream => {
+                        updateStatus('camera', true, 'Camera Ready');
+                        state.cameraReady = true;
+                    })
+                    .catch(error => {
+                        showError('Camera access denied. Please allow camera access to use AR.');
+                        updateStatus('camera', false, 'Access Denied');
+                    });
             }
         }
 
-        // Event listeners
-        loadBtn.addEventListener('click', loadModelFromAWS);
-        clearBtn.addEventListener('click', clearModel);
+        // ==================== Tracking Detection ====================
+        function initializeTracking() {
+            const scene = document.querySelector('a-scene');
+            
+            // AR.js emits arjs-session-start when tracking is ready
+            document.addEventListener('arjs-session-start', () => {
+                updateStatus('tracking', true, 'Tracking Active');
+                state.trackingInitialized = true;
+                state.surfaceDetected = true;
+                console.log('Surface detected and tracking started');
+            });
 
-        // Allow Enter key to load model
-        modelKeyInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                loadModelFromAWS();
+            // Fallback: check if AR session exists
+            setTimeout(() => {
+                if (navigator.xr) {
+                    updateStatus('tracking', true, 'Tracking Ready');
+                    state.trackingInitialized = true;
+                } else if (state.cameraReady) {
+                    // Fallback for non-XR browsers
+                    updateStatus('tracking', true, 'Basic Mode');
+                    state.trackingInitialized = true;
+                }
+            }, 2000);
+        }
+
+        // ==================== Event Listeners ====================
+        function setupEventListeners() {
+            elements.placeBtn.addEventListener('click', placeModelOnSurface);
+            
+            elements.scaleInput.addEventListener('input', (e) => {
+                updateModelScale(e.target.value);
+            });
+
+            elements.rotateInput.addEventListener('input', (e) => {
+                updateModelRotation(e.target.value);
+            });
+
+            elements.resetBtn.addEventListener('click', resetModel);
+            elements.screenshotBtn.addEventListener('click', takeScreenshot);
+
+            // Double-tap to place model
+            let lastTap = 0;
+            document.addEventListener('click', (e) => {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                
+                if (tapLength < 300 && tapLength > 0 && state.modelLoaded && !state.modelPlaced) {
+                    placeModelOnSurface();
+                }
+                lastTap = currentTime;
+            });
+        }
+
+        // ==================== Initialization ====================
+        function initialize() {
+            console.log('Initializing AR Application...');
+            
+            // Setup
+            setupEventListeners();
+            initializeCamera();
+            initializeTracking();
+
+            // Get model URL from parameters
+            const modelUrl = getModelUrlFromParams();
+            
+            if (modelUrl) {
+                console.log('Loading model from URL:', modelUrl);
+                loadModel(modelUrl);
+            } else {
+                updateStatus('model', false, 'Awaiting URL parameter');
+                showError('No model URL provided.\n\nUsage: pin.html?modelUrl=https://your-model-url.glb');
+            }
+
+            // Display instructions
+            console.log('AR.js Application Ready');
+            console.log('Waiting for surface detection...');
+        }
+
+        // Start when DOM is ready
+        document.addEventListener('DOMContentLoaded', initialize);
+
+        // Fallback initialization if A-Frame loads quickly
+        window.addEventListener('load', () => {
+            if (!state.cameraReady) {
+                setTimeout(initialize, 500);
             }
         });
-
-        // Initialize
-        showStatus('Ready to load models');
     </script>
 </body>
 </html>
