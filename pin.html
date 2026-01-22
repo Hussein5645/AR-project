@@ -221,6 +221,12 @@
             region: AWS_CONFIG.region
         });
 
+        // Get URL query parameter
+        function getQueryParam(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
         // Initialize Three.js AR scene
         function initAR() {
             // Setup canvas and renderer
@@ -468,6 +474,16 @@
         document.addEventListener('DOMContentLoaded', () => {
             initAR();
             listS3Models();
+
+            // Check for model parameter in URL
+            const modelParam = getQueryParam('model');
+            if (modelParam) {
+                document.getElementById('modelUrl').value = modelParam;
+                // Delay to ensure AR is fully initialized
+                setTimeout(() => {
+                    loadModel();
+                }, 1000);
+            }
         });
     </script>
 </body>
