@@ -7,8 +7,6 @@
     <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
     <script src="aws-config.js"></script>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
     <style>
         * {
@@ -29,6 +27,15 @@
             width: 100%;
             height: 100%;
             display: block;
+        }
+
+        #camera-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
         }
 
         #info-panel {
@@ -194,8 +201,6 @@
         <div id="loading-text">Loading 3D model...</div>
     </div>
 
-    <!-- Load Model Button -->
-    <button id="load-model-button" onclick="startLoadingModel()">Load Model</button>
 
     <!-- Info Panel -->
     <div id="info-panel">
@@ -223,16 +228,20 @@
         <button class="button" onclick="toggleInfo()">Toggle Info</button>
         <button class="button" onclick="goBack()">Back</button>
     </div>
+    <!-- Load Model Button -->
+    <button id="load-model-button" onclick="startLoadingModel()">Load Model</button>
+
+    <!-- Camera Canvas -->
+    <canvas id="camera-canvas"></canvas>
 
     <!-- A-Frame Scene -->
     <a-scene 
         id="scene"
         vr-mode-ui="enabled: false"
-        arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best; patternRatio: 0.8;"
         renderer="antialias: true; alpha: true; precision: medium; webglVersion: 1;"
         embedded
     >
-        <!-- Camera with AR tracking -->
+        <!-- Camera -->
         <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
         <!-- 3D Model Entity -->
@@ -258,6 +267,51 @@
 
     <!-- Scripts -->
     <script>
+        // Camera setup
+        const canvas = document.getElementById('camera-canvas');
+        const ctx = canvas.getContext('2d');
+        let videoStream = null;
+
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initialize camera
+        async function initializeCamera() {
+            try {
+                console.log('Requesting camera access...');
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                console.log('Camera access granted');
+                
+                const video = document.createElement('video');
+                video.srcObject = videoStream;
+                video.play();
+                
+                // Draw camera feed to canvas
+                function drawCamera() {
+                    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    }
+                    requestAnimationFrame(drawCamera);
+                }
+                drawCamera();
+                
+                loadingText.textContent = 'Camera Ready';
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                loadingText.textContent = 'Camera Error: ' + error.message;
+                alert('Please allow camera access');
+            }
+        }
+
         // Initialize variables
         const AWS_CONFIG_DATA = AWS_CONFIG;
         const s3 = new AWS.S3();
@@ -539,30 +593,19 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', () => {
-            console.log('Page loaded, initializing AR...');
+            console.log('Page loaded, initializing camera...');
+            
+            // Initialize camera immediately
+            initializeCamera();
             
             // Initialize GPS
             initGPS();
 
-            // Check camera permissions
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                console.log('Camera access available');
-            } else {
-                console.error('Camera access not available');
-                loadingText.textContent = 'Error: Camera access not available';
-            }
-
             // Don't auto-load model - wait for button click
             const modelKey = getQueryParam('model');
             if (!modelKey) {
-                loadingText.textContent = 'Ready to load model';
+                loadingText.textContent = 'Ready - Camera active';
             }
-
-            // Wait for A-Frame scene to load
-            const sceneEl = document.getElementById('scene');
-            sceneEl.addEventListener('loaded', () => {
-                console.log('A-Frame scene loaded');
-            });
 
             // Update UI periodically
             setInterval(() => {
@@ -574,6 +617,9 @@
         window.addEventListener('beforeunload', () => {
             if (watchId !== null) {
                 navigator.geolocation.clearWatch(watchId);
+            }
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
             }
         });
     </script>
