@@ -2,12 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Location Based AR Experience</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <title>AR Model Viewer - AWS</title>
+    
+    <!-- AR.js Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/three@r126/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r126/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/three.js/ar.js"></script>
+    
+    <!-- AWS SDK -->
     <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
     <script src="aws-config.js"></script>
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
+
     <style>
         * {
             margin: 0;
@@ -15,943 +21,453 @@
             box-sizing: border-box;
         }
 
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
+        body {
             font-family: Arial, sans-serif;
+            overflow: hidden;
             background: #000;
         }
 
-        #scene {
+        #canvas {
             width: 100%;
             height: 100%;
             display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 2;
         }
 
-        #camera-canvas {
+        .ui-container {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-        }
-
-        #info-panel {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 15px;
-            border-radius: 8px;
-            max-width: 300px;
+            top: 20px;
+            left: 20px;
             z-index: 100;
-            font-size: 14px;
-            max-height: 200px;
-            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 300px;
         }
 
-        #loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 200;
+        .title {
             color: #fff;
             font-size: 18px;
-            flex-direction: column;
-        }
-
-        #load-model-button {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #28a745;
-            color: #fff;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            z-index: 100;
-            font-size: 16px;
-            cursor: pointer;
+            margin-bottom: 15px;
             font-weight: bold;
-            display: none;
-            transition: background 0.3s;
         }
 
-        #load-model-button:hover {
-            background: #218838;
+        .input-group {
+            margin-bottom: 15px;
         }
 
-        #load-model-button:disabled {
-            background: #6c757d;
+        label {
+            display: block;
+            color: #aaa;
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #444;
+            border-radius: 5px;
+            background: #222;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #0099ff;
+            background: #1a1a1a;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            background: #0099ff;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #0077cc;
+        }
+
+        button:disabled {
+            background: #666;
             cursor: not-allowed;
         }
 
-        #placement-controls {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            gap: 10px;
-            z-index: 100;
+        .model-list {
+            color: #aaa;
+            font-size: 12px;
+            margin-top: 10px;
+            border-top: 1px solid #444;
+            padding-top: 10px;
         }
 
-        .placement-btn {
-            background: #007bff;
-            color: #fff;
-            border: none;
-            padding: 12px 25px;
-            border-radius: 8px;
-            font-size: 14px;
+        .model-item {
+            background: #1a1a1a;
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 3px;
             cursor: pointer;
-            font-weight: bold;
-            transition: background 0.3s;
+            transition: background 0.2s ease;
         }
 
-        .placement-btn:hover {
-            background: #0056b3;
+        .model-item:hover {
+            background: #2a2a2a;
         }
 
-        .placement-btn.pin {
-            background: #28a745;
-        }
-
-        .placement-btn.pin:hover {
-            background: #218838;
-        }
-
-        #placement-info {
-            position: fixed;
-            top: 70px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: #fff;
-            padding: 15px 25px;
-            border-radius: 8px;
-            z-index: 100;
-            font-size: 14px;
+        .status {
+            color: #0f0;
+            font-size: 12px;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(0, 255, 0, 0.1);
+            border-radius: 3px;
             display: none;
-            text-align: center;
         }
 
-        #surface-placement-hint {
-            position: fixed;
-            top: 100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(33, 150, 243, 0.9);
-            color: #fff;
-            padding: 12px 20px;
-            border-radius: 8px;
-            z-index: 100;
-            font-size: 16px;
+        .status.active {
+            display: block;
+        }
+
+        .error {
+            color: #f00;
+            font-size: 12px;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(255, 0, 0, 0.1);
+            border-radius: 3px;
             display: none;
-            text-align: center;
-            font-weight: bold;
         }
 
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top: 4px solid #fff;
-            width: 40px;
-            height: 40px;
+        .error.active {
+            display: block;
+        }
+
+        .controls-hint {
+            color: #888;
+            font-size: 11px;
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #444;
+            line-height: 1.6;
+        }
+
+        .loading {
             animation: spin 1s linear infinite;
-            margin-bottom: 20px;
         }
 
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        #distance-info {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 15px 25px;
-            border-radius: 8px;
-            z-index: 100;
-            font-size: 16px;
-            min-width: 250px;
-            text-align: center;
-        }
-
-        #location-status {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 10px 15px;
-            border-radius: 8px;
-            z-index: 100;
-            font-size: 12px;
-        }
-
-        .status-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 2s infinite;
-        }
-
-        .status-dot.active {
-            background-color: #4CAF50;
-        }
-
-        .status-dot.inactive {
-            background-color: #f44336;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        #controls {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            z-index: 150;
-            text-align: center;
-            display: none;
-        }
-
-        #controls.show {
-            display: block;
-        }
-
-        .button {
-            background: #007bff;
-            color: #fff;
-            border: none;
-            padding: 10px 20px;
-            margin: 10px 5px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .button:hover {
-            background: #0056b3;
-        }
     </style>
 </head>
 <body>
-    <!-- Loading Screen -->
-    <div id="loading-screen">
-        <div class="spinner"></div>
-        <div id="loading-text">Loading 3D model...</div>
+    <canvas id="canvas"></canvas>
+
+    <div class="ui-container">
+        <div class="title">🌍 AR Model Loader</div>
+        
+        <div class="input-group">
+            <label>Model URL (S3 or Full URL)</label>
+            <input 
+                type="text" 
+                id="modelUrl" 
+                placeholder="e.g., model.gltf or s3://bucket/model.gltf"
+            >
+        </div>
+
+        <div class="button-group">
+            <button id="loadBtn">📥 Load Model</button>
+            <button id="clearBtn">🗑️ Clear</button>
+        </div>
+
+        <div class="model-list" id="modelList">
+            <div style="color: #0099ff; font-weight: bold; margin-bottom: 8px;">📦 Models in S3</div>
+            <div id="modelItems" style="max-height: 150px; overflow-y: auto;"></div>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="error" id="error"></div>
+
+        <div class="controls-hint">
+            💡 <strong>Controls:</strong><br>
+            ⬆️ Pinch to zoom<br>
+            🔄 Rotate model<br>
+            ➡️ Drag to move
+        </div>
     </div>
 
-
-    <!-- Info Panel -->
-    <div id="info-panel">
-        <h3>Location AR</h3>
-        <p id="model-name">Loading model...</p>
-        <p id="coordinates">Coordinates: --</p>
-    </div>
-
-    <!-- Distance Info -->
-    <div id="distance-info">
-        <p>Distance to Model: <span id="distance-value">--</span></p>
-        <p id="bearing-info">Direction: --</p>
-    </div>
-
-    <!-- Location Status -->
-    <div id="location-status">
-        <span class="status-dot inactive" id="status-dot"></span>
-        <span id="status-text">Initializing GPS...</span>
-    </div>
-
-    <!-- Controls Panel -->
-    <div id="controls">
-        <h3>AR Controls</h3>
-        <button class="button" onclick="resetView()">Reset View</button>
-        <button class="button" onclick="toggleInfo()">Toggle Info</button>
-        <button class="button" onclick="goBack()">Back</button>
-    </div>
-    <!-- Load Model Button -->
-    <button id="load-model-button" onclick="startLoadingModel()">Load Model</button>
-
-    <!-- Placement Controls -->
-    <div id="placement-controls">
-        <button class="placement-btn" onclick="moveModelCloser()">Move Closer</button>
-        <button class="placement-btn" onclick="moveModelFarther()">Move Away</button>
-        <button class="placement-btn pin" onclick="pinModel()">Pin Model</button>
-    </div>
-
-    <!-- Placement Info -->
-    <div id="placement-info">Drag to move • Swipe to rotate</div>
-
-    <!-- Surface Placement Hint -->
-    <div id="surface-placement-hint">Tap screen to place model on surface</div>
-
-    <!-- Camera Canvas -->
-    <canvas id="camera-canvas"></canvas>
-
-    <!-- A-Frame Scene -->
-    <a-scene 
-        id="scene"
-        vr-mode-ui="enabled: false"
-        renderer="antialias: true; alpha: true; precision: medium; webglVersion: 1; background: none;"
-        embedded
-    >
-        <!-- Camera -->
-        <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
-
-        <!-- 3D Model Entity -->
-        <a-entity 
-            id="model-entity"
-            position="0 0 -1.5"
-            rotation="0 0 0"
-            scale="1 1 1"
-        >
-            <!-- Model will be loaded here -->
-        </a-entity>
-
-        <!-- Surface detection plane -->
-        <a-plane 
-            id="surface-detector"
-            position="0 -0.5 -1.5"
-            rotation="-90 0 0"
-            width="10"
-            height="10"
-            color="#444"
-            opacity="0.3"
-            visible="false"
-        ></a-plane>
-
-        <!-- Light sources for better visibility -->
-        <a-light type="ambient" intensity="2" color="#fff"></a-light>
-        <a-light type="directional" intensity="1.5" color="#fff" position="5 10 7"></a-light>
-
-        <!-- Ground plane for reference -->
-        <a-plane position="0 -1 -2" rotation="-90 0 0" width="4" height="4" color="#444" opacity="0.5"></a-plane>
-
-        <!-- Sky for AR background -->
-        <a-sky color="#000000" opacity="0"></a-sky>
-    </a-scene>
-
-    <!-- Scripts -->
     <script>
-        // Camera setup
-        const canvas = document.getElementById('camera-canvas');
-        const ctx = canvas.getContext('2d');
-        let videoStream = null;
-
-        // Set canvas size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-
-        // Initialize camera
-        async function initializeCamera() {
-            try {
-                console.log('Requesting camera access...');
-                videoStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-                    audio: false
-                });
-                console.log('Camera access granted');
-                
-                const video = document.createElement('video');
-                video.srcObject = videoStream;
-                video.play();
-                
-                // Draw camera feed to canvas
-                function drawCamera() {
-                    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    }
-                    requestAnimationFrame(drawCamera);
-                }
-                drawCamera();
-                
-                loadingText.textContent = 'Camera Ready';
-                
-            } catch (error) {
-                console.error('Camera error:', error);
-                loadingText.textContent = 'Camera Error: ' + error.message;
-                alert('Please allow camera access');
-            }
-        }
-
-        // Initialize variables
-        const AWS_CONFIG_DATA = AWS_CONFIG;
-        const s3 = new AWS.S3();
-        const bucketName = AWS_CONFIG_DATA.bucketName;
-        const loadingScreen = document.getElementById('loading-screen');
-        const loadingText = document.getElementById('loading-text');
-        const loadModelButton = document.getElementById('load-model-button');
-        const statusDot = document.getElementById('status-dot');
-        const statusText = document.getElementById('status-text');
-        const infoPanel = document.getElementById('info-panel');
-        const distanceValue = document.getElementById('distance-value');
-        const bearingInfo = document.getElementById('bearing-info');
-        const modelNameEl = document.getElementById('model-name');
-        const coordinatesEl = document.getElementById('coordinates');
-        const scene = document.getElementById('scene');
-
-        let userLocation = null;
-        let modelLocation = { latitude: 0, longitude: 0 };
-        let currentModelUrl = null;
-        let currentModelKey = null;
-        let watchId = null;
-        let modelLoaded = false;
-        let modelPinned = false;
-        let isDragging = false;
-        let dragStartX = 0;
-        let dragStartY = 0;
-        let modelRotationY = 0;
-        const placementControls = document.getElementById('placement-controls');
-        const placementInfo = document.getElementById('placement-info');
-        let isPlacingModel = false;
-        let raycaster = null;
-        let mouse = new THREE.Vector2();
-        let intersectedSurface = null;
-
-        // Get query parameters
-        function getQueryParam(name) {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get(name);
-        }
-
-        // Initialize GPS tracking
-        function initGPS() {
-            statusText.textContent = 'Initializing GPS...';
-            statusDot.classList.remove('active');
-            statusDot.classList.add('inactive');
-
-            if ('geolocation' in navigator) {
-                // Get initial position
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        userLocation = {
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude,
-                            altitude: position.coords.altitude || 0,
-                            accuracy: position.coords.accuracy
-                        };
-                        
-                        console.log('User location:', userLocation);
-                        statusText.textContent = 'GPS Connected';
-                        statusDot.classList.add('active');
-                        statusDot.classList.remove('inactive');
-                        
-                        // Show load model button
-                        loadModelButton.style.display = 'block';
-
-                        // Watch position for continuous updates
-                        if (watchId === null) {
-                            watchId = navigator.geolocation.watchPosition(
-                                (position) => {
-                                    userLocation = {
-                                        latitude: position.coords.latitude,
-                                        longitude: position.coords.longitude,
-                                        altitude: position.coords.altitude || 0,
-                                        accuracy: position.coords.accuracy
-                                    };
-                                    updateDistanceAndBearing();
-                                    updateCoordinates();
-                                },
-                                (error) => {
-                                    console.error('GPS error:', error);
-                                    statusText.textContent = 'GPS Error: ' + error.message;
-                                    statusDot.classList.remove('active');
-                                    statusDot.classList.add('inactive');
-                                },
-                                { 
-                                    enableHighAccuracy: true,
-                                    maximumAge: 0,
-                                    timeout: 27000
-                                }
-                            );
-                        }
-                    },
-                    (error) => {
-                        console.error('Geolocation error:', error);
-                        statusText.textContent = 'GPS Error: ' + error.message;
-                        statusDot.classList.remove('active');
-                        statusDot.classList.add('inactive');
-                        alert('Please enable location services and refresh the page.');
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        maximumAge: 0,
-                        timeout: 27000
-                    }
-                );
-            } else {
-                alert('Geolocation is not supported by this browser.');
-                statusText.textContent = 'GPS Not Supported';
-                statusDot.classList.remove('active');
-                statusDot.classList.add('inactive');
-            }
-        }
-
-        // Set model location (offset from user)
-        function setModelLocation() {
-            // Model is now positioned at a fixed distance from camera (0 0 -3)
-            // This provides better visibility in AR.js
-            if (!userLocation) return;
-            updateDistanceAndBearing();
-        }
-
-        // Calculate distance between two coordinates
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; // Earth's radius in meters
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = 
-                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            const distance = R * c;
-            return distance;
-        }
-
-        // Calculate bearing
-        function calculateBearing(lat1, lon1, lat2, lon2) {
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
-            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
-            const bearing = Math.atan2(y, x) * 180 / Math.PI;
-            return (bearing + 360) % 360;
-        }
-
-        // Update distance and bearing display
-        function updateDistanceAndBearing() {
-            if (!userLocation) return;
-
-            const distance = calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                modelLocation.latitude,
-                modelLocation.longitude
-            );
-
-            const bearing = calculateBearing(
-                userLocation.latitude,
-                userLocation.longitude,
-                modelLocation.latitude,
-                modelLocation.longitude
-            );
-
-            distanceValue.textContent = distance.toFixed(1) + ' m';
-            bearingInfo.textContent = `Direction: ${bearing.toFixed(0)}° (from North)`;
-        }
-
-        // Update coordinates display
-        function updateCoordinates() {
-            if (!userLocation) return;
-            coordinatesEl.textContent = `Coordinates: ${userLocation.latitude.toFixed(6)}, ${userLocation.longitude.toFixed(6)}`;
-        }
-
-        // Load model from AWS
-        function loadModelFromAWS(prefix) {
-            loadingScreen.style.display = 'flex';
-            loadingText.textContent = 'Fetching model from AWS...';
-            loadModelButton.disabled = true;
-
-            s3.listObjectsV2({ Bucket: bucketName, Prefix: prefix }, (err, data) => {
-                if (err) {
-                    console.error('Error fetching bucket contents:', err);
-                    loadingText.textContent = 'Error: Could not fetch model';
-                    loadModelButton.disabled = false;
-                    return;
-                }
-
-                if (data && data.Contents && data.Contents.length > 0) {
-                    const key = data.Contents[0].Key;
-                    currentModelKey = key;
-
-                    const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG_DATA.region}.amazonaws.com/${key}`;
-                    currentModelUrl = fileUrl;
-
-                    modelNameEl.textContent = `Model: ${key.split('/').pop()}`;
-
-                    // Determine file type
-                    const fileExtension = key.split('.').pop().toLowerCase();
-
-                    if (fileExtension === 'gltf' || fileExtension === 'glb') {
-                        loadGLTFModel(fileUrl);
-                    } else {
-                        loadingText.textContent = 'Error: Unsupported file format (Only GLB/GLTF supported)';
-                        loadModelButton.disabled = false;
-                        console.error('Unsupported file format:', fileExtension);
-                    }
-                } else {
-                    loadingText.textContent = 'Error: Model not found';
-                    loadModelButton.disabled = false;
-                    console.error('No model found with prefix:', prefix);
-                }
-            });
-        }
-
-        // Load GLTF/GLB model
-        function loadGLTFModel(url) {
-            loadingText.textContent = 'Loading 3D model...';
-
-            const modelEntity = document.getElementById('model-entity');
-            
-            // Remove existing model if any
-            const existingModel = modelEntity.querySelector('a-gltf-model');
-            if (existingModel) {
-                existingModel.remove();
-            }
-
-            // Create and append GLTF model
-            const gltfModel = document.createElement('a-gltf-model');
-            gltfModel.setAttribute('src', url);
-            gltfModel.setAttribute('scale', '1.5 1.5 1.5');
-            gltfModel.setAttribute('rotation', '0 0 0');
-            gltfModel.setAttribute('animation', 'property: rotation; from: 0 0 0; to: 0 360 0; dur: 4000; loop: true');
-            
-            gltfModel.addEventListener('loaded', () => {
-                console.log('Model loaded successfully');
-                
-                // Get the model's bounding box to auto-center
-                const modelObject3D = gltfModel.getObject3D('mesh');
-                if (modelObject3D) {
-                    // Center the model
-                    const box = new THREE.Box3().setFromObject(modelObject3D);
-                    const center = box.getCenter(new THREE.Vector3());
-                    modelObject3D.position.sub(center);
-                    
-                    console.log('Model size:', box.getSize(new THREE.Vector3()));
-                }
-                
-                loadingScreen.style.display = 'none';
-                loadModelButton.style.display = 'none';
-                modelLoaded = true;
-                modelPinned = false;
-                isPlacingModel = true;
-                
-                // Show surface placement hint
-                document.getElementById('surface-placement-hint').style.display = 'block';
-                
-                // Hide movement controls until placement is done
-                placementControls.style.display = 'none';
-                placementInfo.style.display = 'none';
-                
-                // Add raycaster for surface detection
-                setupSurfaceDetection();
-                
-                // Update UI
-                updateDistanceAndBearing();
-            });
-
-            gltfModel.addEventListener('error', (event) => {
-                console.error('Error loading model:', event);
-                loadingText.textContent = 'Error: Could not load 3D model. Check console.';
-                loadModelButton.disabled = false;
-                loadModelButton.style.display = 'block';
-            });
-
-            modelEntity.appendChild(gltfModel);
-        }
-
-        // Control functions
-        function resetView() {
-            // Reset camera and model
-            setModelLocation();
-            console.log('View reset');
-        }
-
-        function toggleInfo() {
-            infoPanel.style.display = infoPanel.style.display === 'none' ? 'block' : 'none';
-        }
-
-        function goBack() {
-            window.history.back();
-        }
-
-        // Start loading model
-        function startLoadingModel() {
-            const modelKey = getQueryParam('model');
-            if (modelKey) {
-                loadModelFromAWS(modelKey);
-            } else {
-                alert('No model key specified. Use ?model=KEY');
-            }
-        }
-
-        // Model placement controls
-        function setupModelControls() {
-            const modelEntity = document.getElementById('model-entity');
-            const canvas = document.getElementById('camera-canvas');
-            
-            // Mouse drag
-            canvas.addEventListener('mousedown', (e) => {
-                if (modelPinned) return;
-                isDragging = true;
-                dragStartX = e.clientX;
-                dragStartY = e.clientY;
-            });
-            
-            canvas.addEventListener('mousemove', (e) => {
-                if (!isDragging || modelPinned) return;
-                const deltaX = e.clientX - dragStartX;
-                const deltaY = e.clientY - dragStartY;
-                
-                // Rotate model on X axis with vertical drag
-                const rotX = (deltaY / window.innerHeight) * 180;
-                // Rotate model on Y axis with horizontal drag
-                modelRotationY = (deltaX / window.innerWidth) * 180;
-                
-                const currentRot = modelEntity.getAttribute('rotation');
-                modelEntity.setAttribute('rotation', `${rotX} ${modelRotationY} 0`);
-            });
-            
-            canvas.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
-            
-            // Touch controls
-            canvas.addEventListener('touchstart', (e) => {
-                if (modelPinned) return;
-                isDragging = true;
-                dragStartX = e.touches[0].clientX;
-                dragStartY = e.touches[0].clientY;
-            });
-            
-            canvas.addEventListener('touchmove', (e) => {
-                if (!isDragging || modelPinned) return;
-                e.preventDefault();
-                const deltaX = e.touches[0].clientX - dragStartX;
-                const deltaY = e.touches[0].clientY - dragStartY;
-                
-                const rotX = (deltaY / window.innerHeight) * 180;
-                modelRotationY = (deltaX / window.innerWidth) * 180;
-                
-                const currentRot = modelEntity.getAttribute('rotation');
-                modelEntity.setAttribute('rotation', `${rotX} ${modelRotationY} 0`);
-            });
-            
-            canvas.addEventListener('touchend', () => {
-                isDragging = false;
-            });
-        }
-        
-        // Move model closer to camera
-        function moveModelCloser() {
-            const modelEntity = document.getElementById('model-entity');
-            const pos = modelEntity.getAttribute('position');
-            if (pos.z < -0.5) {
-                modelEntity.setAttribute('position', `${pos.x} ${pos.y} ${pos.z + 0.1}`);
-            }
-        }
-        
-        // Move model farther from camera
-        function moveModelFarther() {
-            const modelEntity = document.getElementById('model-entity');
-            const pos = modelEntity.getAttribute('position');
-            if (pos.z > -5) {
-                modelEntity.setAttribute('position', `${pos.x} ${pos.y} ${pos.z - 0.1}`);
-            }
-        }
-        
-        // Pin model to surface
-        function pinModel() {
-            const modelEntity = document.getElementById('model-entity');
-            const pos = modelEntity.getAttribute('position');
-            
-            // Stop animations
-            modelEntity.removeAttribute('animation');
-            
-            // Lock the model
-            modelPinned = true;
-            
-            // Hide placement controls
-            placementControls.style.display = 'none';
-            placementInfo.style.display = 'none';
-            
-            // Show success message
-            loadingText.textContent = 'Model pinned!';
-            loadingScreen.style.display = 'flex';
-            setTimeout(() => {
-                loadingScreen.style.display = 'none';
-            }, 1500);
-            
-            console.log('Model pinned at position:', pos);
-        }
-
-        // Surface detection and placement
-        function setupSurfaceDetection() {
-            const sceneEl = document.getElementById('scene');
-            const modelEntity = document.getElementById('model-entity');
-            const canvas = document.getElementById('camera-canvas');
-            const hint = document.getElementById('surface-placement-hint');
-            
-            // Get Three.js scene from A-Frame
-            const aframeScene = sceneEl.object3D;
-            raycaster = new THREE.Raycaster();
-            
-            // Create detection planes
-            const planeGeometry = new THREE.PlaneGeometry(20, 20);
-            const planeMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
-            
-            // Ground plane
-            const groundPlane = new THREE.Mesh(planeGeometry, planeMaterial);
-            groundPlane.position.set(0, -0.5, -1.5);
-            groundPlane.rotation.x = -Math.PI / 2;
-            groundPlane.userData.name = 'ground';
-            aframeScene.add(groundPlane);
-            
-            // Vertical plane
-            const wallPlane = new THREE.Mesh(planeGeometry, planeMaterial);
-            wallPlane.position.set(0, 0, -2);
-            wallPlane.userData.name = 'wall';
-            aframeScene.add(wallPlane);
-            
-            // Mouse move for surface detection
-            canvas.addEventListener('mousemove', (e) => {
-                if (!isPlacingModel || modelPinned) return;
-                
-                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-                
-                updateModelPlacement();
-            });
-            
-            // Touch move for surface detection
-            canvas.addEventListener('touchmove', (e) => {
-                if (!isPlacingModel || modelPinned) return;
-                e.preventDefault();
-                
-                const touch = e.touches[0];
-                mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
-                
-                updateModelPlacement();
-            });
-            
-            // Click/Tap to place
-            canvas.addEventListener('click', () => {
-                if (isPlacingModel && !modelPinned) {
-                    finalizePlacement();
-                }
-            });
-            
-            canvas.addEventListener('touchend', (e) => {
-                if (isPlacingModel && !modelPinned && e.touches.length === 0) {
-                    finalizePlacement();
-                }
-            });
-            
-            function updateModelPlacement() {
-                // Get camera from A-Frame scene
-                const camera = aframeScene.children.find(child => child.isCamera);
-                if (!camera) return;
-                
-                raycaster.setFromCamera(mouse, camera);
-                
-                const detectionPlanes = [
-                    aframeScene.children.find(p => p.userData.name === 'ground'),
-                    aframeScene.children.find(p => p.userData.name === 'wall')
-                ].filter(p => p);
-                
-                const intersects = raycaster.intersectObjects(detectionPlanes);
-                
-                if (intersects.length > 0) {
-                    const intersection = intersects[0];
-                    intersectedSurface = intersection;
-                    
-                    // Update model position
-                    const point = intersection.point;
-                    modelEntity.setAttribute('position', `${point.x} ${point.y} ${point.z}`);
-                    
-                    // Visual feedback - change hint color
-                    hint.style.background = 'rgba(76, 175, 80, 0.9)';
-                    hint.textContent = '✓ Ready to place - Tap to confirm';
-                } else {
-                    hint.style.background = 'rgba(33, 150, 243, 0.9)';
-                    hint.textContent = 'Move over a surface';
-                }
-            }
-            
-            function finalizePlacement() {
-                isPlacingModel = false;
-                hint.style.display = 'none';
-                
-                // Show message
-                loadingText.textContent = 'Model placed! Adjust & pin it';
-                loadingScreen.style.display = 'flex';
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                    
-                    // Show movement controls
-                    placementControls.style.display = 'flex';
-                    placementInfo.style.display = 'block';
-                    
-                    // Setup rotation/movement controls
-                    setupModelControls();
-                }, 800);
-            }
-        }
-
-        // Initialize on page load
-        window.addEventListener('DOMContentLoaded', () => {
-            console.log('Page loaded, initializing camera...');
-            
-            // Initialize camera immediately
-            initializeCamera();
-            
-            // Initialize GPS
-            initGPS();
-
-            // Don't auto-load model - wait for button click
-            const modelKey = getQueryParam('model');
-            if (!modelKey) {
-                loadingText.textContent = 'Ready - Camera active';
-            }
-
-            // Update UI periodically
-            setInterval(() => {
-                updateCoordinates();
-            }, 1000);
+        // Global variables
+        let scene, camera, renderer, arToolkitSource, arToolkitContext;
+        let loadedModel = null;
+        const s3 = new AWS.S3({
+            accessKeyId: AWS_CONFIG.accessKeyId,
+            secretAccessKey: AWS_CONFIG.secretAccessKey,
+            region: AWS_CONFIG.region
         });
 
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            if (watchId !== null) {
-                navigator.geolocation.clearWatch(watchId);
+        // Initialize Three.js AR scene
+        function initAR() {
+            // Setup canvas and renderer
+            const canvas = document.getElementById('canvas');
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+
+            // Setup scene
+            scene = new THREE.Scene();
+
+            // Setup camera
+            camera = new THREE.Camera();
+            scene.add(camera);
+
+            // Setup AR.js
+            arToolkitSource = new THREEx.ArToolkitSource({
+                sourceType: 'webcam',
+                sourceWidth: 1280,
+                sourceHeight: 960
+            });
+
+            arToolkitSource.init(() => onARSourceReady(arToolkitSource));
+
+            // Setup AR context
+            const parameters = {
+                detectionMode: 'color',
+                matrixCodeType: '3x3',
+                canvasWidth: window.innerWidth,
+                canvasHeight: window.innerHeight
+            };
+
+            arToolkitContext = new THREEx.ArToolkitContext(parameters);
+            arToolkitContext.init(() => {
+                camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
+            });
+
+            // Setup lighting
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(5, 10, 5);
+            light.castShadow = true;
+            scene.add(light);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            // Setup ground plane for model placement
+            const planeGeometry = new THREE.PlaneGeometry(100, 100);
+            const planeMaterial = new THREE.MeshStandardMaterial({
+                color: 0x888888,
+                transparent: true,
+                opacity: 0.1
+            });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Start render loop
+            render();
+        }
+
+        function onARSourceReady(arToolkitSource) {
+            arToolkitSource.domElement.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+            }, false);
+        }
+
+        function render() {
+            requestAnimationFrame(render);
+
+            if (arToolkitSource && arToolkitSource.ready !== false) {
+                arToolkitContext.update(arToolkitSource.domElement);
             }
-            if (videoStream) {
-                videoStream.getTracks().forEach(track => track.stop());
+
+            // Rotate model if loaded
+            if (loadedModel) {
+                loadedModel.rotation.y += 0.005;
             }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            arToolkitSource.onResizeElement();
+            arToolkitSource.copyElementSizeTo(renderer.domElement);
+            if (arToolkitContext && arToolkitContext.arController) {
+                arToolkitContext.arController.orientation = window.orientation;
+                arToolkitContext.arController.options.trackingBackend = 'artoolkit';
+            }
+        }
+
+        // Load model from S3 or URL
+        async function loadModel() {
+            const urlInput = document.getElementById('modelUrl').value.trim();
+            
+            if (!urlInput) {
+                showError('Please enter a model URL');
+                return;
+            }
+
+            showStatus('Loading model...');
+            
+            try {
+                let modelUrl = urlInput;
+
+                // If it's an S3 path, convert to signed URL
+                if (urlInput.startsWith('s3://')) {
+                    const s3Path = urlInput.replace('s3://', '').split('/');
+                    const key = s3Path.slice(1).join('/');
+                    modelUrl = s3.getSignedUrl('getObject', {
+                        Bucket: AWS_CONFIG.bucketName,
+                        Key: key,
+                        Expires: 3600
+                    });
+                } else if (!urlInput.startsWith('http')) {
+                    // Assume it's a key in the bucket
+                    modelUrl = s3.getSignedUrl('getObject', {
+                        Bucket: AWS_CONFIG.bucketName,
+                        Key: urlInput,
+                        Expires: 3600
+                    });
+                }
+
+                // Load the model using GLTFLoader
+                const loader = new THREE.GLTFLoader();
+                loader.load(
+                    modelUrl,
+                    (gltf) => {
+                        if (loadedModel) {
+                            scene.remove(loadedModel);
+                        }
+
+                        loadedModel = gltf.scene;
+                        loadedModel.scale.set(0.5, 0.5, 0.5);
+                        loadedModel.position.y = 0;
+                        loadedModel.castShadow = true;
+                        loadedModel.receiveShadow = true;
+
+                        // Process all meshes in the model
+                        loadedModel.traverse((child) => {
+                            if (child.isMesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+
+                        scene.add(loadedModel);
+                        showStatus('✅ Model loaded successfully!');
+                        hideError();
+                    },
+                    (progress) => {
+                        const percent = Math.round((progress.loaded / progress.total) * 100);
+                        showStatus(`Loading... ${percent}%`);
+                    },
+                    (error) => {
+                        showError(`Failed to load model: ${error.message}`);
+                    }
+                );
+            } catch (error) {
+                showError(`Error: ${error.message}`);
+            }
+        }
+
+        // Fetch and list models from S3
+        async function listS3Models() {
+            try {
+                showStatus('Fetching models from S3...');
+                const params = {
+                    Bucket: AWS_CONFIG.bucketName,
+                    Prefix: ''
+                };
+
+                s3.listObjects(params, (err, data) => {
+                    if (err) {
+                        showError(`Failed to list S3 objects: ${err.message}`);
+                        return;
+                    }
+
+                    const modelItems = document.getElementById('modelItems');
+                    modelItems.innerHTML = '';
+
+                    if (data.Contents && data.Contents.length > 0) {
+                        data.Contents.forEach((item) => {
+                            if (item.Key.match(/\.(gltf|glb|fbx|obj)$/i)) {
+                                const div = document.createElement('div');
+                                div.className = 'model-item';
+                                div.textContent = item.Key;
+                                div.onclick = () => {
+                                    document.getElementById('modelUrl').value = item.Key;
+                                    loadModel();
+                                };
+                                modelItems.appendChild(div);
+                            }
+                        });
+                        hideError();
+                    } else {
+                        showError('No 3D models found in S3');
+                    }
+                });
+            } catch (error) {
+                showError(`Error listing models: ${error.message}`);
+            }
+        }
+
+        // UI Helper functions
+        function showStatus(message) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.classList.add('active');
+        }
+
+        function hideStatus() {
+            const status = document.getElementById('status');
+            status.classList.remove('active');
+        }
+
+        function showError(message) {
+            const error = document.getElementById('error');
+            error.textContent = message;
+            error.classList.add('active');
+        }
+
+        function hideError() {
+            const error = document.getElementById('error');
+            error.classList.remove('active');
+        }
+
+        // Event listeners
+        document.getElementById('loadBtn').addEventListener('click', loadModel);
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            if (loadedModel) {
+                scene.remove(loadedModel);
+                loadedModel = null;
+                hideStatus();
+                hideError();
+                document.getElementById('modelUrl').value = '';
+            }
+        });
+
+        // Initialize AR on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initAR();
+            listS3Models();
         });
     </script>
 </body>
