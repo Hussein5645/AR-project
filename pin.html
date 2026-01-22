@@ -9,6 +9,10 @@
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.5/aframe/aframe-ar.js"></script>
     
+    <!-- AWS SDK for S3 -->
+    <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+    <script src="aws-config.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -242,11 +246,11 @@
         <strong>AR Controls:</strong><br>
         🔷 Hold phone flat to detect surface<br>
         👆 Tap to place model<br>
-        <strong>URL Parameter:</strong><br>
-        ?modelUrl=your-model-url.glb<br>
-        <strong>Example:</strong><br>
+        <strong>Load Model:</strong><br>
+        ✓ Direct URL:<br>
         pin.html?modelUrl=https://...<br>
-        /model.glb
+        ✓ S3 Key (AWS):<br>
+        pin.html?model=M9DPbKXz12
     </div>
 
     <!-- Error Message -->
@@ -320,9 +324,59 @@
         };
 
         // ==================== URL Parameter Extraction ====================
-        function getModelUrlFromParams() {
+        function getQueryParam(name) {
             const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get('modelUrl');
+            return urlParams.get(name);
+        }
+
+        async function getModelUrlFromParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // Check if modelUrl is provided directly
+            const modelUrl = urlParams.get('modelUrl');
+            if (modelUrl) {
+                return modelUrl;
+            }
+
+            // Check if model key is provided (fetch from AWS S3)
+            const modelKey = urlParams.get('model');
+            if (modelKey) {
+                return await fetchModelFromS3(modelKey);
+            }
+
+            return null;
+        }
+
+        async function fetchModelFromS3(modelPrefix) {
+            try {
+                updateStatus('model', false, 'Fetching from S3...');
+                
+                const s3 = new AWS.S3();
+                const bucketName = AWS_CONFIG.bucketName;
+
+                return new Promise((resolve, reject) => {
+                    s3.listObjectsV2({ Bucket: bucketName, Prefix: modelPrefix }, (err, data) => {
+                        if (err) {
+                            showError('Error fetching model from S3: ' + err.message);
+                            reject(err);
+                            return;
+                        }
+
+                        if (data && data.Contents && data.Contents.length > 0) {
+                            const key = data.Contents[0].Key;
+                            const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
+                            resolve(fileUrl);
+                        } else {
+                            const error = 'No model found with key: ' + modelPrefix;
+                            showError(error);
+                            reject(new Error(error));
+                        }
+                    });
+                });
+            } catch (error) {
+                showError('S3 fetch error: ' + error.message);
+                throw error;
+            }
         }
 
         // ==================== Status Updates ====================
@@ -565,7 +619,7 @@
         }
 
         // ==================== Initialization ====================
-        function initialize() {
+        async function initialize() {
             console.log('Initializing AR Application...');
             
             // Setup
@@ -573,15 +627,20 @@
             initializeCamera();
             initializeTracking();
 
-            // Get model URL from parameters
-            const modelUrl = getModelUrlFromParams();
-            
-            if (modelUrl) {
-                console.log('Loading model from URL:', modelUrl);
-                loadModel(modelUrl);
-            } else {
-                updateStatus('model', false, 'Awaiting URL parameter');
-                showError('No model URL provided.\n\nUsage: pin.html?modelUrl=https://your-model-url.glb');
+            // Get model URL from parameters (either direct URL or S3 key)
+            try {
+                const modelUrl = await getModelUrlFromParams();
+                
+                if (modelUrl) {
+                    console.log('Loading model from URL:', modelUrl);
+                    await loadModel(modelUrl);
+                } else {
+                    updateStatus('model', false, 'Awaiting URL parameter');
+                    showError('No model URL or key provided.\n\nUsage:\npin.html?modelUrl=https://...\nor\npin.html?model=M9DPbKXz12');
+                }
+            } catch (error) {
+                showError('Initialization error: ' + error.message);
+                updateStatus('model', false, 'Error');
             }
 
             // Display instructions
