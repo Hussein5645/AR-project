@@ -58,6 +58,7 @@
         <label>RotY: <input id="ctrl-ry" type="number" step="1" value="0"></label>
         <label>Scale: <input id="ctrl-scale" type="number" step="0.01" value="1"></label>
         <button id="place-btn">Place Model</button>
+        <button id="remove-btn" style="background:#c0392b;color:#fff;">Remove</button>
     </div>
     
     <script>
@@ -252,6 +253,7 @@
             const ctrlRY = document.getElementById('ctrl-ry');
             const ctrlScale = document.getElementById('ctrl-scale');
             const placeBtn = document.getElementById('place-btn');
+            const removeBtn = document.getElementById('remove-btn');
 
             function placeModelInBrowser() {
                 const px = parseFloat(ctrlX.value) || 0;
@@ -281,6 +283,38 @@
             }
 
             placeBtn.addEventListener('click', placeModelInBrowser);
+
+            // Remove button: hide model and reset state
+            function removeModelInBrowser() {
+                if (!originalMesh) return;
+                originalMesh.isVisible = false;
+                // optional reset
+                originalMesh.position.set(0,0,0);
+                originalMesh.rotation.set(0,0,0);
+                originalMesh.scaling.set(1,1,1);
+                browserPlaced = false;
+            }
+            removeBtn.addEventListener('click', removeModelInBrowser);
+
+            // Live updates: when placed, update transforms as user types
+            function liveUpdateIfPlaced() {
+                if (!browserPlaced || !originalMesh) return;
+                const px = parseFloat(ctrlX.value) || 0;
+                const py = parseFloat(ctrlY.value) || 0;
+                const pz = parseFloat(ctrlZ.value) || 0;
+                const ry = (parseFloat(ctrlRY.value) || 0) * (Math.PI/180);
+                const s = parseFloat(ctrlScale.value) || 1;
+                originalMesh.position.set(px, py, pz);
+                originalMesh.rotation.set(0, ry, 0);
+                originalMesh.scaling.set(s, s, s);
+            }
+            ['input','change'].forEach(evtName => {
+                ctrlX.addEventListener(evtName, liveUpdateIfPlaced);
+                ctrlY.addEventListener(evtName, liveUpdateIfPlaced);
+                ctrlZ.addEventListener(evtName, liveUpdateIfPlaced);
+                ctrlRY.addEventListener(evtName, liveUpdateIfPlaced);
+                ctrlScale.addEventListener(evtName, liveUpdateIfPlaced);
+            });
 
             // Hide browser controls when entering XR
             const hideBrowserControls = () => { const el = document.getElementById('browser-controls'); if (el) el.style.display = 'none'; };
