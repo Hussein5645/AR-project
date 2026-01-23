@@ -24,6 +24,8 @@
         <script src="https://cdn.babylonjs.com/babylon.js"></script>
         <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
         <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
+        <script src="aws-config.js"></script>
     </head>
 
    <body>
@@ -78,10 +80,69 @@
             rectangle.addControl(text1);
 
             // 4. Asset Loading
-            const dummy3URL = "https://playground.babylonjs.com/scenes/dummy3.babylon";
+            // Resolve model URL from query parameter (?model=KEY) using the same S3 method as index.html
+            async function resolveModelUrlFromQuery() {
+                const params = new URLSearchParams(window.location.search);
+                const modelParam = params.get('model');
+
+                if (!modelParam) {
+                    return null;
+                }
+
+                // Prefer sessionStorage if it already contains the resolved URL for this prefix
+                try {
+                    const sessPrefix = sessionStorage.getItem('currentModelPrefix');
+                    const sessUrl = sessionStorage.getItem('currentModelUrl');
+                    if (sessUrl && sessPrefix === modelParam) {
+                        return sessUrl;
+                    }
+
+                    // Otherwise query S3 like in index.html
+                    const s3 = new AWS.S3();
+                    const bucketName = AWS_CONFIG.bucketName;
+
+                    const listData = await new Promise((resolve, reject) => {
+                        s3.listObjectsV2({ Bucket: bucketName, Prefix: modelParam }, (err, data) => {
+                            if (err) return reject(err);
+                            resolve(data);
+                        });
+                    });
+
+                    if (listData && listData.Contents && listData.Contents.length > 0) {
+                        const key = listData.Contents[0].Key;
+                        const fileUrl = `https://${bucketName}.s3.${AWS_CONFIG.region}.amazonaws.com/${key}`;
+                        // Cache for reuse
+                        sessionStorage.setItem('currentModelUrl', fileUrl);
+                        sessionStorage.setItem('currentModelKey', key);
+                        sessionStorage.setItem('currentModelPrefix', modelParam);
+                        return fileUrl;
+                    }
+                } catch (e) {
+                    console.warn('Error resolving model from S3:', e);
+                }
+
+                return null;
+            }
+
             console.log("Status: Starting Asset Load");
 
-            const result = await BABYLON.SceneLoader.ImportMeshAsync("", dummy3URL, "", scene);
+            let resolvedUrl = await resolveModelUrlFromQuery();
+            // Fallback to original dummy model if nothing resolved to avoid breaking the scene
+            if (!resolvedUrl) {
+                resolvedUrl = "https://playground.babylonjs.com/scenes/dummy3.babylon";
+                console.warn('Using fallback model URL (dummy3)');
+            }
+
+            // If resolvedUrl is a full URL, split into rootUrl + filename for ImportMeshAsync
+            let rootUrl = resolvedUrl;
+            let sceneFilename = "";
+            const lastSlash = resolvedUrl.lastIndexOf('/');
+            if (lastSlash !== -1) {
+                rootUrl = resolvedUrl.substring(0, lastSlash + 1);
+                sceneFilename = resolvedUrl.substring(lastSlash + 1);
+            }
+
+            const result = await BABYLON.SceneLoader.ImportMeshAsync("", rootUrl, sceneFilename, scene);
             
             // Prepare the mesh
             let originalMesh = result.meshes[0];
