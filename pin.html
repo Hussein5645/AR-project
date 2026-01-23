@@ -480,8 +480,6 @@
                 // Clear center donut; force re-center on next tap
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
                 centerAnchor = null;
-                pendingFinalize = false;
-                anchoringInProgress = false;
 
                 // Start GIS tracking for anchoring validation
                 startGeoWatch();
@@ -498,8 +496,6 @@
                 // Clear session visuals
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
                 centerAnchor = null;
-                pendingFinalize = false;
-                anchoringInProgress = false;
 
                 // Stop GIS tracking
                 stopGeoWatch();
@@ -512,8 +508,6 @@
                     marker.isVisible = false;
                     stableHitCount = 0;
                     stopGeoWatch();
-                    pendingFinalize = false;
-                    anchoringInProgress = false;
                 }
             });
 
@@ -521,7 +515,6 @@
             let hitTest;
             let lastValidHit = null;
             let pendingFinalize = false;
-            let anchoringInProgress = false;
 
             // Stability filtering
             let lastHitPos = null;
@@ -537,28 +530,6 @@
             function composeMatrix(pos, rot) {
                 const scl = BABYLON.Vector3.One();
                 return BABYLON.Matrix.Compose(scl, rot, pos);
-            }
-
-            function requestAnchorPlacement() {
-                if (!anchors) { pendingFinalize = false; return; }
-                if (anchoringInProgress) { pendingFinalize = true; return; }
-                if (!hitTest || stableHitCount < STABLE_FRAMES) { pendingFinalize = true; return; }
-                if (!isGeoReady()) { pendingFinalize = true; return; }
-
-                anchoringInProgress = true;
-                pendingFinalize = false;
-                try {
-                    if (smoothedPos && smoothedRot) {
-                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
-                    } else {
-                        lastHoldMatrix = hitTest.transformationMatrix.clone();
-                    }
-                    anchors.addAnchorPointUsingHitTestResultAsync(hitTest)
-                        .catch(() => { anchoringInProgress = false; })
-                        .finally(() => { /* anchorAdded will clear in-progress */ });
-                } catch(e) {
-                    anchoringInProgress = false;
-                }
             }
 
             xrTest.onHitTestResultObservable.add((results) => {
@@ -603,11 +574,13 @@
 
                     // If we were waiting for a valid hit to finalize, do it now
                     if (pendingFinalize && anchors && stableHitCount >= STABLE_FRAMES && isGeoReady()) {
-                        requestAnchorPlacement();
-                        if (!anchoringInProgress) {
+                        try {
+                            lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest || results[0]);
                             triggerHapticFeedback();
-                            cancelHold();
-                        }
+                        } catch(e) {}
+                        pendingFinalize = false;
+                        cancelHold();
                     }
                 } else {
                     marker.isVisible = false;
@@ -619,7 +592,6 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    anchoringInProgress = false;
                     // Preserve model local transform before switching parent
                     const savedPos = modelRoot.position.clone();
                     const savedRot = modelRoot.rotation.clone();
@@ -665,10 +637,6 @@
                     if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
                     shadowGenerator.addShadowCaster(originalMesh, true);
 
-                    // If a new request came while anchoring, retry now
-                    if (pendingFinalize) {
-                        requestAnchorPlacement();
-                    }
                 });
             }
 
@@ -704,11 +672,27 @@
 
             async function finalizeHoldIfReady() {
                 if (!anchors) { cancelHold(); return; }
-                requestAnchorPlacement();
-                if (!anchoringInProgress) {
-                    triggerHapticFeedback();
-                    cancelHold();
+                if (!hitTest || stableHitCount < STABLE_FRAMES) {
+                    pendingFinalize = true;
+                    return;
                 }
+                if (!isGeoReady()) {
+                    pendingFinalize = true;
+                    return;
+                }
+                // create/assign anchor at current hit test
+                try {
+                    // snapshot matrix to ensure consistent pose application in anchorAdded
+                    if (smoothedPos && smoothedRot) {
+                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                    } else {
+                        lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    }
+                    await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                } catch(e) {}
+                // haptic feedback on completion
+                triggerHapticFeedback();
+                cancelHold();
             }
 
             function updateHoldIndicator() {
