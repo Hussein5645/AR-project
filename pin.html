@@ -387,9 +387,6 @@
             // Enable Anchors (keeping object in place)
             const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
             
-            // Enable Plane Detection (align to real surfaces for extra stability)
-            const xrPlanes = fm.enableFeature(BABYLON.WebXRPlaneDetector.Name, 'latest');
-            
             // Enable Background Remover (so you see the camera feed)
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
             // const bgRemover = fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
@@ -442,59 +439,6 @@
             let hitTest;
             let lastValidHit = null;
             let pendingFinalize = false;
-            
-            // Stability gate: require N consecutive stable frames within thresholds
-            const stabilitySamples = [];
-            const REQUIRED_STABLE_FRAMES = 12; // ~200ms at 60fps
-            const POS_EPS = 0.01; // meters
-            const ANG_EPS = BABYLON.Tools.ToRadians(3); // radians
-            let stableCount = 0;
-            
-            function quatDeltaAngle(q1, q2) {
-                // angle between orientations via delta quaternion
-                const dq = q1.multiply(BABYLON.Quaternion.Invert(q2));
-                const angle = 2 * Math.acos(Math.min(1, Math.max(-1, dq.w)));
-                return angle;
-            }
-            
-            function pushStabilitySample(pos, rotQ) {
-                stabilitySamples.push({ p: pos.clone(), q: rotQ.clone() });
-                if (stabilitySamples.length > REQUIRED_STABLE_FRAMES) stabilitySamples.shift();
-                if (stabilitySamples.length < 2) { stableCount = 0; return; }
-                // Check latest vs mean of buffer for position + orientation
-                const latest = stabilitySamples[stabilitySamples.length - 1];
-                let avg = new BABYLON.Vector3(0,0,0);
-                let refQ = stabilitySamples[0].q;
-                for (const s of stabilitySamples) avg.addInPlace(s.p);
-                avg.scaleInPlace(1 / stabilitySamples.length);
-                const posDelta = BABYLON.Vector3.Distance(latest.p, avg);
-                const angDelta = quatDeltaAngle(latest.q, refQ);
-                if (posDelta <= POS_EPS && angDelta <= ANG_EPS) {
-                    stableCount = Math.min(REQUIRED_STABLE_FRAMES, stableCount + 1);
-                } else {
-                    stableCount = 0;
-                }
-            }
-            
-            // Plane helper: choose nearest plane and return its normal
-            function getNearestPlaneNormal(worldPos) {
-                if (!xrPlanes || !xrPlanes.planes || xrPlanes.planes.length === 0) return null;
-                let best = null;
-                let bestDist = Number.POSITIVE_INFINITY;
-                for (const plane of xrPlanes.planes) {
-                    // plane has a polygonMesh with world matrix / rotationQuaternion
-                    const mesh = plane.polygonMesh || plane.mesh || plane;
-                    if (!mesh) continue;
-                    const center = mesh.getBoundingInfo ? mesh.getBoundingInfo().boundingBox.centerWorld : mesh.position || new BABYLON.Vector3(0,0,0);
-                    const dist = BABYLON.Vector3.Distance(worldPos, center);
-                    if (dist < bestDist) { bestDist = dist; best = mesh; }
-                }
-                if (!best) return null;
-                const q = best.rotationQuaternion || BABYLON.Quaternion.Identity();
-                const up = BABYLON.Vector3.Up().clone();
-                const normal = BABYLON.Vector3.TransformCoordinates(up, BABYLON.Matrix.FromQuaternion(q)).normalize();
-                return normal;
-            }
 
             xrTest.onHitTestResultObservable.add((results) => {
                 if (results.length) {
@@ -503,18 +447,6 @@
                     lastValidHit = results[0];
                     // Update marker position/rotation to match the floor surface
                     hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
-                    // Push stability sample and update marker to align with nearest plane normal if available
-                    pushStabilitySample(marker.position, marker.rotationQuaternion);
-                    const planeNormal = getNearestPlaneNormal(marker.position);
-                    if (planeNormal) {
-                        const look = new BABYLON.Vector3(0, 0, 1);
-                        marker.rotationQuaternion = BABYLON.Quaternion.FromLookDirectionLH(look, planeNormal);
-                    }
-                    // Color reflects stability progress
-                    const prog = Math.min(1, stableCount / REQUIRED_STABLE_FRAMES);
-                    const startC = new BABYLON.Color3(1, 0.6, 0);
-                    const endC = new BABYLON.Color3(0, 0.8, 1);
-                    markerMat.emissiveColor = BABYLON.Color3.Lerp(startC, endC, prog);
                     // If we were waiting for a valid hit to finalize, do it now
                     if (pendingFinalize && anchors) {
                         try {
@@ -528,7 +460,6 @@
                 } else {
                     marker.isVisible = false;
                     hitTest = undefined;
-                    stableCount = 0;
                 }
             });
 
@@ -581,9 +512,8 @@
             // 10. Input Handling (Hold-to-recenter in AR / Click to select in browser)
             let holdActive = false;
             let holdStart = 0;
-            const HOLD_THRESHOLD_MS = 600; // shorter; stability gate dominates
+            const HOLD_THRESHOLD_MS = 800;
             let lastHoldMatrix = null;
-            let trackingOk = true;
 
             function triggerHapticFeedback() {
                 try {
@@ -611,14 +541,13 @@
 
             async function finalizeHoldIfReady() {
                 if (!anchors || !hitTest) { cancelHold(); return; }
-                // Require stability gate and plane availability for robust placement
-                const prog = Math.min(1, stableCount / REQUIRED_STABLE_FRAMES);
-                const planeNormal = getNearestPlaneNormal(marker.position);
-                if (prog < 1 || !planeNormal || !trackingOk) { pendingFinalize = true; return; }
+                // create/assign anchor at current hit test
                 try {
+                    // snapshot matrix to ensure consistent pose application in anchorAdded
                     lastHoldMatrix = hitTest.transformationMatrix.clone();
                     await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 } catch(e) {}
+                // haptic feedback on completion
                 triggerHapticFeedback();
                 cancelHold();
             }
@@ -626,9 +555,7 @@
             function updateHoldIndicator() {
                 if (!holdActive) return;
                 const now = performance.now();
-                const timeRatio = Math.min(1, (now - holdStart) / HOLD_THRESHOLD_MS);
-                const stabilityRatio = Math.min(1, stableCount / REQUIRED_STABLE_FRAMES);
-                const ratio = Math.min(1, (timeRatio + stabilityRatio) * 0.5);
+                const ratio = Math.min(1, (now - holdStart) / HOLD_THRESHOLD_MS);
                 // Always use marker color at target location for progress
                 const start = new BABYLON.Color3(1, 0.6, 0); // orange
                 const end = new BABYLON.Color3(0, 0.8, 1);   // cyan
@@ -640,17 +567,6 @@
                     finalizeHoldIfReady();
                 }
             }
-
-            // Global XR safety layer: monitor frame/tracking + plane availability
-            xr.baseExperience.sessionManager.onXRFrameObservable.add(() => {
-                // If no hit test for a while or no planes, consider tracking not OK
-                const hasPlanes = !!(xrPlanes && xrPlanes.planes && xrPlanes.planes.length);
-                trackingOk = !!hitTest && hasPlanes;
-                if (!trackingOk && holdActive) {
-                    // keep waiting; do not finalize until tracking recovers
-                    pendingFinalize = true;
-                }
-            });
 
             scene.onPointerDown = (evt, pickInfo) => {
                 // AR: start hold-to-recenter
@@ -689,6 +605,8 @@
             engine.runRenderLoop(function () {
                 if (scene) {
                     scene.render();
+        let lastValidHit = null;
+        let pendingFinalize = false;
                 }
             });
         });
