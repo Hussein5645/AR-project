@@ -173,8 +173,6 @@
 
             const result = await BABYLON.SceneLoader.ImportMeshAsync("", rootUrl, sceneFilename, scene);
 
-            // Ensure canvas starts empty: hide all imported meshes
-            //result.meshes.forEach(m => { m.isVisible = false; });
 
             // Prepare the mesh (use first as template for cloning)
             let originalMesh = result.meshes[0];
@@ -246,7 +244,7 @@
             camera.onViewMatrixChangedObservable.add(updateGridByCameraZoom);
 
             // Browser placement state
-            let browserInstance = null; // currently placed clone in browser mode
+            let browserPlaced = false; // use originalMesh only (no clones)
 
             const ctrlX = document.getElementById('ctrl-x');
             const ctrlY = document.getElementById('ctrl-y');
@@ -262,29 +260,24 @@
                 const ry = (parseFloat(ctrlRY.value) || 0) * (Math.PI/180);
                 const s = parseFloat(ctrlScale.value) || 1;
 
-                if (browserInstance) {
+                if (browserPlaced) {
                     const replace = confirm('There is already an instance of this model. OK = Replace, Cancel = Keep existing.');
                     if (!replace) return; // keep existing
-                    // remove existing
-                    try { browserInstance.dispose(); } catch(e){}
-                    browserInstance = null;
                 }
 
-                // Clone the hidden original mesh and position relative to origin
-                browserInstance = originalMesh.clone('browserClone');
-                browserInstance.isVisible = true;
-                browserInstance.position = new BABYLON.Vector3(px, py, pz);
-                browserInstance.rotationQuaternion = null;
-                browserInstance.rotation = new BABYLON.Vector3(0, ry, 0);
-                browserInstance.scaling = new BABYLON.Vector3(s, s, s);
-                // If skeleton exists, clone and play
+                // Use original mesh for placement and movement
+                originalMesh.isVisible = true;
+                originalMesh.rotationQuaternion = null;
+                originalMesh.position = new BABYLON.Vector3(px, py, pz);
+                originalMesh.rotation = new BABYLON.Vector3(0, ry, 0);
+                originalMesh.scaling = new BABYLON.Vector3(s, s, s);
                 if (skeleton) {
                     try {
-                        browserInstance.skeleton = skeleton.clone('browserCloneSkel');
-                        scene.beginAnimation(browserInstance.skeleton, 0, 100, true);
-                    } catch(e) { console.warn('skeleton clone failed', e); }
+                        scene.beginAnimation(skeleton, 0, 100, true);
+                    } catch(e) { console.warn('skeleton play failed', e); }
                 }
-                shadowGenerator.addShadowCaster(browserInstance, true);
+                shadowGenerator.addShadowCaster(originalMesh, true);
+                browserPlaced = true;
             }
 
             placeBtn.addEventListener('click', placeModelInBrowser);
@@ -336,6 +329,7 @@
                 origin.setEnabled(false);
                 axisLines.forEach(l => l.setEnabled(false));
                 if (gridGround) gridGround.setEnabled(false);
+                if (originalMesh) { originalMesh.isVisible = false; }
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
@@ -367,24 +361,19 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    // When a new anchor is added, attach (single-instance)
-                    // If a previous instance somehow exists, dispose it defensively
-                    if (arInstanceNode && arInstanceNode.dispose) {
-                        try { arInstanceNode.dispose(); } catch(e) {}
-                    }
+                    // Attach original mesh to the anchor (no cloning)
                     arInstanceAnchor = anchor;
-                    anchor.attachedNode = originalMesh.clone("clone");
-                    anchor.attachedNode.isVisible = true;
-                    arInstanceNode = anchor.attachedNode;
+                    anchor.attachedNode = originalMesh;
+                    originalMesh.isVisible = true;
+                    arInstanceNode = originalMesh;
 
                     if (skeleton) {
                         try {
-                            anchor.attachedNode.skeleton = skeleton.clone('cloneSkeleton');
-                            scene.beginAnimation(anchor.attachedNode.skeleton, 0, 100, true);
-                        } catch(e) { console.warn('AR skeleton clone failed', e); }
+                            scene.beginAnimation(skeleton, 0, 100, true);
+                        } catch(e) { console.warn('AR skeleton play failed', e); }
                     }
 
-                    shadowGenerator.addShadowCaster(anchor.attachedNode, true);
+                    shadowGenerator.addShadowCaster(originalMesh, true);
                 });
 
                 if (anchors.onAnchorRemovedObservable) {
@@ -405,16 +394,15 @@
                         if (!replace) {
                             return; // keep existing, do not place new
                         }
-                        // Remove previous anchor/node before placing new
-                        try {
-                            if (arInstanceNode && arInstanceNode.dispose) arInstanceNode.dispose();
-                        } catch(e) {}
+                        // Remove previous anchor before placing new
                         try {
                             if (anchors.removeAnchor) anchors.removeAnchor(arInstanceAnchor);
                             else if (arInstanceAnchor.dispose) arInstanceAnchor.dispose();
                         } catch(e) {}
                         arInstanceAnchor = null;
                         arInstanceNode = null;
+                        // Hide original mesh until new anchor is created
+                        originalMesh.isVisible = false;
                     }
                     anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 }
