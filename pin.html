@@ -454,6 +454,8 @@
             // AR center anchor only
             let centerAnchor = null; // single center anchor per session
             let centerDonutMesh = null;
+            let pendingAnchorPose = null;
+            let recenterInProgress = false;
 
             function createDonutMesh(color) {
                 const donut = BABYLON.MeshBuilder.CreateTorus('arDonut', { diameter: 0.15, thickness: 0.05 }, scene);
@@ -612,6 +614,7 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
+                    if (!recenterInProgress) return;
                     // Preserve model local transform before switching parent
                     const savedPos = modelRoot.position.clone();
                     const savedRot = modelRoot.rotation.clone();
@@ -625,21 +628,14 @@
                     // Detach model to preserve local transform while switching anchors
                     modelRoot.parent = null;
 
-                    // Remove old anchor to avoid conflicting updates
-                    try {
-                        if (centerAnchor && centerAnchor !== anchor) {
-                            if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose();
-                        }
-                    } catch(e){}
-
                     // Reassign center to new anchor without recreating the donut
                     centerAnchor = anchor;
                     anchor.attachedNode = centerDonutMesh;
 
-                    // Apply snapped hold pose immediately to the donut
-                    if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
-                        lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                        lastHoldMatrix = null;
+                    // Apply pending pose immediately to the donut
+                    if (pendingAnchorPose && centerDonutMesh.rotationQuaternion) {
+                        pendingAnchorPose.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        pendingAnchorPose = null;
                     }
 
                     // Re-parent based on toggle
@@ -650,6 +646,7 @@
                     if (originalMesh) originalMesh.isVisible = true;
                     if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
                     shadowGenerator.addShadowCaster(originalMesh, true);
+                    recenterInProgress = false;
                 });
             }
 
@@ -695,31 +692,36 @@
                 }
                 // create/assign anchor at current hit test
                 try {
+                    recenterInProgress = true;
                     // snapshot matrix to ensure consistent pose application in anchorAdded
                     if (smoothedPos && smoothedRot) {
-                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                        pendingAnchorPose = composeMatrix(smoothedPos, smoothedRot);
                     } else {
-                        lastHoldMatrix = hitTest.transformationMatrix.clone();
+                        pendingAnchorPose = hitTest.transformationMatrix.clone();
                     }
+
+                    // Ensure we have a donut to show immediately
+                    if (!centerDonutMesh) {
+                        const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
+                        centerDonutMesh = createDonutMesh(donutColor);
+                    }
+
                     // Remove old center before creating new one
                     removeCenterAnchor();
-                    // Immediate visual update to ensure center switches every time
-                    if (centerDonutMesh && centerDonutMesh.rotationQuaternion) {
-                        lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                    }
-                    // Ensure donut is on top of marker visually
+
+                    // Immediate visual update: place donut on top of marker while anchor resolves
                     snapDonutToMarker();
+
                     // Ensure model is parented to donut instantly even before anchor resolves
-                    if (centerDonutMesh) {
-                        const savedPos = modelRoot.position.clone();
-                        const savedRot = modelRoot.rotation.clone();
-                        const savedScl = modelRoot.scaling.clone();
-                        modelRoot.parent = centerDonutMesh;
-                        modelRoot.position.copyFrom(savedPos);
-                        modelRoot.rotation.copyFrom(savedRot);
-                        modelRoot.scaling.copyFrom(savedScl);
-                        if (originalMesh) originalMesh.isVisible = true;
-                    }
+                    const savedPos = modelRoot.position.clone();
+                    const savedRot = modelRoot.rotation.clone();
+                    const savedScl = modelRoot.scaling.clone();
+                    modelRoot.parent = centerDonutMesh;
+                    modelRoot.position.copyFrom(savedPos);
+                    modelRoot.rotation.copyFrom(savedRot);
+                    modelRoot.scaling.copyFrom(savedScl);
+                    if (originalMesh) originalMesh.isVisible = true;
+
                     await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 } catch(e) {}
                 // haptic feedback on completion
