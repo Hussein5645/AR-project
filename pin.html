@@ -453,23 +453,29 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
-                    const donut = createDonutMesh(donutColor);
-                    anchor.attachedNode = donut;
-
-                    // If a center already exists, replace it
-                    if (centerAnchor) {
-                        try { if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose(); } catch(e){}
-                        if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} }
-                    }
-
-                    centerAnchor = anchor;
-                    centerDonutMesh = donut;
-
-                    // Parent modelRoot under the center donut, preserving browser transform
+                    // Preserve model local transform before switching parent
                     const savedPos = modelRoot.position.clone();
                     const savedRot = modelRoot.rotation.clone();
                     const savedScl = modelRoot.scaling.clone();
+
+                    if (!centerAnchor || !centerDonutMesh) {
+                        // First time: create center donut and attach to anchor
+                        const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
+                        centerDonutMesh = createDonutMesh(donutColor);
+                        anchor.attachedNode = centerDonutMesh;
+                        centerAnchor = anchor;
+                    } else {
+                        // Subsequent taps: move center by reassigning the same donut to the new anchor
+                        // Detach model to preserve local transform while switching anchors
+                        modelRoot.parent = null;
+                        // Remove old anchor to avoid conflicting updates
+                        try { if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose(); } catch(e){}
+                        // Reassign center to new anchor without recreating the donut
+                        centerAnchor = anchor;
+                        anchor.attachedNode = centerDonutMesh;
+                    }
+
+                    // Re-parent modelRoot under the center donut, preserving local (browser) transform
                     modelRoot.parent = centerDonutMesh;
                     modelRoot.position.copyFrom(savedPos);
                     modelRoot.rotation.copyFrom(savedRot);
