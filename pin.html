@@ -548,11 +548,6 @@
                         // Apply snapped hold pose immediately to the donut
                         if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
                             lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                            const n = getNearestPlaneNormal(centerDonutMesh.position);
-                            if (n) {
-                                const look = new BABYLON.Vector3(0, 0, 1);
-                                centerDonutMesh.rotationQuaternion = BABYLON.Quaternion.FromLookDirectionLH(look, n);
-                            }
                             lastHoldMatrix = null;
                         }
                         centerAnchor = anchor;
@@ -568,11 +563,6 @@
                         // Apply snapped hold pose immediately to the donut
                         if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
                             lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                            const n = getNearestPlaneNormal(centerDonutMesh.position);
-                            if (n) {
-                                const look = new BABYLON.Vector3(0, 0, 1);
-                                centerDonutMesh.rotationQuaternion = BABYLON.Quaternion.FromLookDirectionLH(look, n);
-                            }
                             lastHoldMatrix = null;
                         }
                     }
