@@ -175,11 +175,16 @@
             const result = await BABYLON.SceneLoader.ImportMeshAsync("", rootUrl, sceneFilename, scene);
 
 
-            // Prepare the mesh (use first as template for cloning)
+            // Prepare the mesh (use first as template)
             let originalMesh = result.meshes[0];
             if (originalMesh) {
                 originalMesh.rotationQuaternion = new BABYLON.Quaternion();
                 originalMesh.isVisible = false; // explicit
+            }
+            // Model root for relative transform (browser controls apply here)
+            const modelRoot = new BABYLON.TransformNode('modelRoot', scene);
+            if (originalMesh) {
+                originalMesh.parent = modelRoot;
             }
 
             // Prepare the skeleton and animation
@@ -245,7 +250,7 @@
             camera.onViewMatrixChangedObservable.add(updateGridByCameraZoom);
 
             // Browser placement state
-            let browserPlaced = false; // use originalMesh only (no clones)
+            let browserPlaced = false; // use original mesh via modelRoot (no clones)
 
             const ctrlX = document.getElementById('ctrl-x');
             const ctrlY = document.getElementById('ctrl-y');
@@ -263,12 +268,12 @@
                 const s = parseFloat(ctrlScale.value) || 1;
 
 
-                // Use original mesh for placement and movement
-                originalMesh.isVisible = true;
-                originalMesh.rotationQuaternion = null;
-                originalMesh.position = new BABYLON.Vector3(px, py, pz);
-                originalMesh.rotation = new BABYLON.Vector3(0, ry, 0);
-                originalMesh.scaling = new BABYLON.Vector3(s, s, s);
+                // Use modelRoot for placement and movement (originalMesh is child)
+                if (originalMesh) originalMesh.isVisible = true;
+                modelRoot.rotationQuaternion = null;
+                modelRoot.position = new BABYLON.Vector3(px, py, pz);
+                modelRoot.rotation = new BABYLON.Vector3(0, ry, 0);
+                modelRoot.scaling = new BABYLON.Vector3(s, s, s);
                 if (skeleton) {
                     try {
                         scene.beginAnimation(skeleton, 0, 100, true);
@@ -300,9 +305,9 @@
                 const pz = parseFloat(ctrlZ.value) || 0;
                 const ry = (parseFloat(ctrlRY.value) || 0) * (Math.PI/180);
                 const s = parseFloat(ctrlScale.value) || 1;
-                originalMesh.position.set(px, py, pz);
-                originalMesh.rotation.set(0, ry, 0);
-                originalMesh.scaling.set(s, s, s);
+                modelRoot.position.set(px, py, pz);
+                modelRoot.rotation.set(0, ry, 0);
+                modelRoot.scaling.set(s, s, s);
             }
             ['input','change'].forEach(evtName => {
                 ctrlX.addEventListener(evtName, liveUpdateIfPlaced);
@@ -347,9 +352,9 @@
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
             // const bgRemover = fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
 
-            // AR single-instance tracking
-            let arInstanceAnchor = null;
-            let arInstanceNode = null;
+            // AR anchor tracking for donuts and center
+            let centerAnchor = null; // first donut = world origin anchor
+            const donutAnchors = [];
 
             // Hide UI when in AR
             xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
@@ -360,6 +365,8 @@
                 axisLines.forEach(l => l.setEnabled(false));
                 if (gridGround) gridGround.setEnabled(false);
                 if (originalMesh) { originalMesh.isVisible = false; }
+                // Detach modelRoot from any parent at AR start
+                modelRoot.parent = null;
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
@@ -368,9 +375,11 @@
                 origin.setEnabled(true);
                 axisLines.forEach(l => l.setEnabled(true));
                 if (gridGround) gridGround.setEnabled(true);
-                // Clear AR instance tracking
-                arInstanceAnchor = null;
-                arInstanceNode = null;
+                // Clear AR anchors tracking
+                centerAnchor = null;
+                donutAnchors.length = 0;
+                // Detach from AR origin
+                modelRoot.parent = null;
             });
 
             // 8. Hit Testing Logic
@@ -391,26 +400,50 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    // Attach original mesh to the anchor (no cloning)
-                    arInstanceAnchor = anchor;
-                    anchor.attachedNode = originalMesh;
-                    originalMesh.isVisible = true;
-                    arInstanceNode = originalMesh;
-
-                    if (skeleton) {
-                        try {
-                            scene.beginAnimation(skeleton, 0, 100, true);
-                        } catch(e) { console.warn('AR skeleton play failed', e); }
+                    // Create a donut at anchor location (center gets distinct color)
+                    const donut = BABYLON.MeshBuilder.CreateTorus('arDonut', { diameter: 0.15, thickness: 0.05 }, scene);
+                    donut.rotationQuaternion = new BABYLON.Quaternion();
+                    const mat = new BABYLON.StandardMaterial('arDonutMat', scene);
+                    const isCenter = !centerAnchor;
+                    if (isCenter) {
+                        mat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // cyan for center
+                    } else {
+                        const shade = 0.4 + 0.5 * Math.random();
+                        mat.emissiveColor = new BABYLON.Color3(shade, shade*0.6, 0.2); // varied warm tones
                     }
+                    donut.material = mat;
+                    anchor.attachedNode = donut;
 
-                    shadowGenerator.addShadowCaster(originalMesh, true);
+                    if (!centerAnchor) {
+                        centerAnchor = anchor;
+                        // Parent modelRoot under the center anchor, preserving local (browser) transform
+                        const savedPos = modelRoot.position.clone();
+                        const savedRot = modelRoot.rotation.clone();
+                        const savedScl = modelRoot.scaling.clone();
+                        modelRoot.parent = anchor.attachedNode;
+                        modelRoot.position.copyFrom(savedPos);
+                        modelRoot.rotation.copyFrom(savedRot);
+                        modelRoot.scaling.copyFrom(savedScl);
+                        if (originalMesh) originalMesh.isVisible = true;
+                        if (skeleton) {
+                            try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {}
+                        }
+                        shadowGenerator.addShadowCaster(originalMesh, true);
+                    } else {
+                        donutAnchors.push(anchor);
+                    }
                 });
 
                 if (anchors.onAnchorRemovedObservable) {
                     anchors.onAnchorRemovedObservable.add(anchor => {
-                        if (arInstanceAnchor === anchor) {
-                            arInstanceAnchor = null;
-                            arInstanceNode = null;
+                        if (centerAnchor === anchor) {
+                            centerAnchor = null;
+                            // Detach modelRoot if center removed
+                            modelRoot.parent = null;
+                            if (originalMesh) originalMesh.isVisible = false;
+                        } else {
+                            const idx = donutAnchors.indexOf(anchor);
+                            if (idx !== -1) donutAnchors.splice(idx, 1);
                         }
                     });
                 }
@@ -419,18 +452,7 @@
             // 10. Input Handling (Tap to Place)
             scene.onPointerDown = (evt, pickInfo) => {
                 if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
-                    if (arInstanceAnchor) {
-
-                        // Remove previous anchor before placing new
-                        try {
-                            if (anchors.removeAnchor) anchors.removeAnchor(arInstanceAnchor);
-                            else if (arInstanceAnchor.dispose) arInstanceAnchor.dispose();
-                        } catch(e) {}
-                        arInstanceAnchor = null;
-                        arInstanceNode = null;
-                        // Hide original mesh until new anchor is created
-                        originalMesh.isVisible = false;
-                    }
+                    // In AR: only place donut anchors via hit test (no model placement/move by user)
                     anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 }
             };
