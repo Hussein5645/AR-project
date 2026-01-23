@@ -597,35 +597,29 @@
                     const savedRot = modelRoot.rotation.clone();
                     const savedScl = modelRoot.scaling.clone();
 
-                    if (!centerAnchor || !centerDonutMesh) {
-                        // First time: create center donut and attach to anchor
+                    if (!centerDonutMesh) {
                         const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
                         centerDonutMesh = createDonutMesh(donutColor);
-                        anchor.attachedNode = centerDonutMesh;
-                        // Apply snapped hold pose immediately to the donut
-                        if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
-                            lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                            lastHoldMatrix = null;
+                    }
+
+                    // Detach model to preserve local transform while switching anchors
+                    modelRoot.parent = null;
+
+                    // Remove old anchor to avoid conflicting updates
+                    try {
+                        if (centerAnchor && centerAnchor !== anchor) {
+                            if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose();
                         }
-                        centerAnchor = anchor;
-                    } else {
-                        // Subsequent taps: move center by reassigning the same donut to the new anchor
-                        // Detach model to preserve local transform while switching anchors
-                        modelRoot.parent = null;
-                        // Remove old anchor to avoid conflicting updates
-                        try {
-                            if (centerAnchor && centerAnchor !== anchor) {
-                                if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose();
-                            }
-                        } catch(e){}
-                        // Reassign center to new anchor without recreating the donut
-                        centerAnchor = anchor;
-                        anchor.attachedNode = centerDonutMesh;
-                        // Apply snapped hold pose immediately to the donut
-                        if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
-                            lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
-                            lastHoldMatrix = null;
-                        }
+                    } catch(e){}
+
+                    // Reassign center to new anchor without recreating the donut
+                    centerAnchor = anchor;
+                    anchor.attachedNode = centerDonutMesh;
+
+                    // Apply snapped hold pose immediately to the donut
+                    if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
+                        lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        lastHoldMatrix = null;
                     }
 
                     // Re-parent based on toggle
@@ -636,7 +630,6 @@
                     if (originalMesh) originalMesh.isVisible = true;
                     if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
                     shadowGenerator.addShadowCaster(originalMesh, true);
-
                 });
             }
 
@@ -687,6 +680,21 @@
                         lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
                     } else {
                         lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    }
+                    // Immediate visual update to ensure center switches every time
+                    if (centerDonutMesh && centerDonutMesh.rotationQuaternion) {
+                        lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                    }
+                    // Ensure model is parented to donut instantly even before anchor resolves
+                    if (centerDonutMesh) {
+                        const savedPos = modelRoot.position.clone();
+                        const savedRot = modelRoot.rotation.clone();
+                        const savedScl = modelRoot.scaling.clone();
+                        modelRoot.parent = centerDonutMesh;
+                        modelRoot.position.copyFrom(savedPos);
+                        modelRoot.rotation.copyFrom(savedRot);
+                        modelRoot.scaling.copyFrom(savedScl);
+                        if (originalMesh) originalMesh.isVisible = true;
                     }
                     await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 } catch(e) {}
