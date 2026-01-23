@@ -464,6 +464,16 @@
                 return donut;
             }
 
+            function removeCenterAnchor() {
+                try {
+                    if (centerAnchor) {
+                        if (anchors && anchors.removeAnchor) anchors.removeAnchor(centerAnchor);
+                        else centerAnchor.dispose();
+                    }
+                } catch (e) {}
+                centerAnchor = null;
+            }
+
             // Hide UI when in AR
             xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
                 rectangle.isVisible = false;
@@ -681,6 +691,8 @@
                     } else {
                         lastHoldMatrix = hitTest.transformationMatrix.clone();
                     }
+                    // Remove old center before creating new one
+                    removeCenterAnchor();
                     // Immediate visual update to ensure center switches every time
                     if (centerDonutMesh && centerDonutMesh.rotationQuaternion) {
                         lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
