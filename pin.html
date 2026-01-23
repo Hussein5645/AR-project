@@ -486,14 +486,56 @@
                 });
             }
 
-            // 10. Input Handling (Tap to Place / Click to select in browser)
-            scene.onPointerDown = (evt, pickInfo) => {
-                // AR tap: add anchor
-                if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
-                    // In AR: only place donut anchors via hit test (no model placement/move by user)
-                    anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
-                    return;
+            // 10. Input Handling (Hold-to-recenter in AR / Click to select in browser)
+            let holdActive = false;
+            let holdStart = 0;
+            const HOLD_THRESHOLD_MS = 800;
+
+            function startHoldIfAR() {
+                if (!hitTest || !anchors || xr.baseExperience.state !== BABYLON.WebXRState.IN_XR) return false;
+                holdActive = true;
+                holdStart = performance.now();
+                return true;
+            }
+
+            function cancelHold() {
+                holdActive = false;
+                // reset visual indicators
+                if (markerMat) markerMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+                if (centerDonutMesh && centerDonutMesh.material && centerDonutMesh.material.emissiveColor) {
+                    centerDonutMesh.material.emissiveColor = new BABYLON.Color3(0, 0.8, 1);
                 }
+            }
+
+            async function finalizeHoldIfReady() {
+                if (!anchors || !hitTest) { cancelHold(); return; }
+                // create/assign anchor at current hit test
+                try { await anchors.addAnchorPointUsingHitTestResultAsync(hitTest); } catch(e) {}
+                cancelHold();
+            }
+
+            function updateHoldIndicator() {
+                if (!holdActive) return;
+                const now = performance.now();
+                const ratio = Math.min(1, (now - holdStart) / HOLD_THRESHOLD_MS);
+                // First placement: use marker color as progress
+                if (!centerDonutMesh) {
+                    const start = new BABYLON.Color3(1, 0.6, 0); // orange
+                    const end = new BABYLON.Color3(0, 0.8, 1);   // cyan
+                    markerMat.emissiveColor = BABYLON.Color3.Lerp(start, end, ratio);
+                } else if (centerDonutMesh.material) {
+                    const start = new BABYLON.Color3(0, 0.6, 0.9); // bluish
+                    const end = new BABYLON.Color3(1, 1, 1);       // white glow
+                    centerDonutMesh.material.emissiveColor = BABYLON.Color3.Lerp(start, end, ratio);
+                }
+                if (ratio >= 1) {
+                    finalizeHoldIfReady();
+                }
+            }
+
+            scene.onPointerDown = (evt, pickInfo) => {
+                // AR: start hold-to-recenter
+                if (startHoldIfAR()) return;
                 // Browser click: attach gizmo when clicking the model
                 if (xr.baseExperience.state !== BABYLON.WebXRState.IN_XR && originalMesh && originalMesh.isVisible) {
                     const pick = scene.pick(scene.pointerX, scene.pointerY);
@@ -503,7 +545,6 @@
                         if (isOnModel) {
                             attachMoveGizmo();
                         } else {
-                            // click elsewhere clears gizmo
                             detachGizmo();
                         }
                     } else {
@@ -511,6 +552,15 @@
                     }
                 }
             };
+
+            scene.onPointerUp = (evt, pickInfo) => {
+                // Cancel hold if not completed
+                if (holdActive) cancelHold();
+            };
+
+            scene.onBeforeRenderObservable.add(() => {
+                updateHoldIndicator();
+            });
 
             return scene;
         };
