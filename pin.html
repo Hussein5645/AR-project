@@ -378,6 +378,13 @@
                 optionalFeatures: true // Enable all optional features like hit-test
             });
 
+            // Prefer grounded reference space for higher real-world stability
+            try {
+                xr.baseExperience.sessionManager.referenceSpaceType = "local-floor";
+            } catch (e) {
+                console.warn("Failed to set referenceSpaceType", e);
+            }
+
             // 7. AR Features Manager
             const fm = xr.baseExperience.featuresManager;
             
@@ -386,6 +393,22 @@
             
             // Enable Anchors (keeping object in place)
             const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
+
+            // Optional: Light estimation for better real-world reference
+            let lightEstimation = null;
+            try {
+                lightEstimation = fm.enableFeature(BABYLON.WebXRLightEstimation.Name, "latest");
+            } catch (e) {
+                console.warn("Light estimation not available", e);
+            }
+
+            // Optional: Plane detection to improve surface stability
+            let planeDetector = null;
+            try {
+                planeDetector = fm.enableFeature(BABYLON.WebXRPlaneDetector.Name, "latest");
+            } catch (e) {
+                console.warn("Plane detector not available", e);
+            }
             
             // Enable Background Remover (so you see the camera feed)
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
@@ -435,23 +458,81 @@
                 centerAnchor = null;
             });
 
+            // Global state changes: ensure clean tracking state
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    cancelHold();
+                    marker.isVisible = false;
+                    stableHitCount = 0;
+                }
+            });
+
             // 8. Hit Testing Logic
             let hitTest;
             let lastValidHit = null;
             let pendingFinalize = false;
 
+            // Stability filtering
+            let lastHitPos = null;
+            let stableHitCount = 0;
+            const STABLE_THRESHOLD = 0.01; // 1cm
+            const STABLE_FRAMES = 5;
+
+            // Smoothing for marker placement
+            let smoothedPos = null;
+            let smoothedRot = null;
+            const SMOOTH_ALPHA = 0.25;
+
+            function composeMatrix(pos, rot) {
+                const scl = BABYLON.Vector3.One();
+                return BABYLON.Matrix.Compose(scl, rot, pos);
+            }
+
             xrTest.onHitTestResultObservable.add((results) => {
                 if (results.length) {
                     marker.isVisible = true;
-                    hitTest = results[0];
-                    lastValidHit = results[0];
-                    // Update marker position/rotation to match the floor surface
-                    hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
+
+                    const tmpPos = new BABYLON.Vector3();
+                    const tmpRot = new BABYLON.Quaternion();
+                    results[0].transformationMatrix.decompose(undefined, tmpRot, tmpPos);
+
+                    // Stability check
+                    if (lastHitPos && BABYLON.Vector3.Distance(tmpPos, lastHitPos) < STABLE_THRESHOLD) {
+                        stableHitCount++;
+                    } else {
+                        stableHitCount = 0;
+                    }
+                    lastHitPos = tmpPos.clone();
+
+                    // Smooth marker pose
+                    if (!smoothedPos) {
+                        smoothedPos = tmpPos.clone();
+                    } else {
+                        smoothedPos = BABYLON.Vector3.Lerp(smoothedPos, tmpPos, SMOOTH_ALPHA);
+                    }
+
+                    if (!smoothedRot) {
+                        smoothedRot = tmpRot.clone();
+                    } else {
+                        smoothedRot = BABYLON.Quaternion.Slerp(smoothedRot, tmpRot, SMOOTH_ALPHA);
+                    }
+
+                    marker.position.copyFrom(smoothedPos);
+                    if (marker.rotationQuaternion) {
+                        marker.rotationQuaternion.copyFrom(smoothedRot);
+                    }
+
+                    // Accept hitTest only when stable to reduce jitter
+                    if (stableHitCount >= STABLE_FRAMES) {
+                        hitTest = results[0];
+                        lastValidHit = results[0];
+                    }
+
                     // If we were waiting for a valid hit to finalize, do it now
-                    if (pendingFinalize && anchors) {
+                    if (pendingFinalize && anchors && stableHitCount >= STABLE_FRAMES) {
                         try {
-                            lastHoldMatrix = hitTest.transformationMatrix.clone();
-                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                            lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest || results[0]);
                             triggerHapticFeedback();
                         } catch(e) {}
                         pendingFinalize = false;
@@ -460,6 +541,7 @@
                 } else {
                     marker.isVisible = false;
                     hitTest = undefined;
+                    stableHitCount = 0;
                 }
             });
 
@@ -540,11 +622,19 @@
             }
 
             async function finalizeHoldIfReady() {
-                if (!anchors || !hitTest) { cancelHold(); return; }
+                if (!anchors) { cancelHold(); return; }
+                if (!hitTest || stableHitCount < STABLE_FRAMES) {
+                    pendingFinalize = true;
+                    return;
+                }
                 // create/assign anchor at current hit test
                 try {
                     // snapshot matrix to ensure consistent pose application in anchorAdded
-                    lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    if (smoothedPos && smoothedRot) {
+                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                    } else {
+                        lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    }
                     await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 } catch(e) {}
                 // haptic feedback on completion
@@ -605,8 +695,6 @@
             engine.runRenderLoop(function () {
                 if (scene) {
                     scene.render();
-        let lastValidHit = null;
-        let pendingFinalize = false;
                 }
             });
         });
