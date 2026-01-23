@@ -391,16 +391,9 @@
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
             // const bgRemover = fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
 
-            // AR donuts persistence and session state
-            let centerAnchor = null; // first donut = world origin anchor (per session)
+            // AR center anchor only
+            let centerAnchor = null; // single center anchor per session
             let centerDonutMesh = null;
-            let currentDonutMeshes = [];
-            let savedDonutOffsets = [];
-            try { savedDonutOffsets = JSON.parse(sessionStorage.getItem('savedDonutOffsets') || '[]'); } catch(e) { savedDonutOffsets = []; }
-
-            function saveOffsets() {
-                try { sessionStorage.setItem('savedDonutOffsets', JSON.stringify(savedDonutOffsets)); } catch(e) {}
-            }
 
             function createDonutMesh(color) {
                 const donut = BABYLON.MeshBuilder.CreateTorus('arDonut', { diameter: 0.15, thickness: 0.05 }, scene);
@@ -424,10 +417,8 @@
                 modelRoot.parent = null;
                 // Detach gizmo in AR
                 if (typeof detachGizmo === 'function') detachGizmo();
-                // Clear current AR donuts (visuals), keep saved offsets; force re-center
+                // Clear center donut; force re-center on next tap
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
-                currentDonutMeshes.forEach(m => { try { m.dispose(); } catch(e){} });
-                currentDonutMeshes = [];
                 centerAnchor = null;
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
@@ -439,11 +430,8 @@
                 if (gridGround) gridGround.setEnabled(true);
                 // Detach from AR origin
                 modelRoot.parent = null;
-                // Persist offsets and clear session visuals
-                saveOffsets();
+                // Clear session visuals
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
-                currentDonutMeshes.forEach(m => { try { m.dispose(); } catch(e){} });
-                currentDonutMeshes = [];
                 centerAnchor = null;
             });
 
@@ -465,51 +453,30 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    const isCenter = !centerAnchor;
-                    const donutColor = isCenter ? new BABYLON.Color3(0, 0.8, 1) : new BABYLON.Color3(0.9, 0.6, 0.2);
+                    const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
                     const donut = createDonutMesh(donutColor);
                     anchor.attachedNode = donut;
 
-                    if (isCenter) {
-                        centerAnchor = anchor;
-                        centerDonutMesh = donut;
-                        // Parent modelRoot under the center donut, preserving browser transform
-                        const savedPos = modelRoot.position.clone();
-                        const savedRot = modelRoot.rotation.clone();
-                        const savedScl = modelRoot.scaling.clone();
-                        modelRoot.parent = centerDonutMesh;
-                        modelRoot.position.copyFrom(savedPos);
-                        modelRoot.rotation.copyFrom(savedRot);
-                        modelRoot.scaling.copyFrom(savedScl);
-                        if (originalMesh) originalMesh.isVisible = true;
-                        if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
-                        shadowGenerator.addShadowCaster(originalMesh, true);
-
-                        // Rebuild saved donuts relative to new center
-                        savedDonutOffsets.forEach(off => {
-                            const d = createDonutMesh(new BABYLON.Color3(0.9, 0.6, 0.2));
-                            d.parent = centerDonutMesh;
-                            d.position = new BABYLON.Vector3(off.x, off.y, off.z);
-                            currentDonutMeshes.push(d);
-                        });
-                    } else if (centerDonutMesh) {
-                        // Compute offset from center and persist, then reparent under center and remove anchor
-                        const donutAbs = donut.getAbsolutePosition();
-                        const centerAbs = centerDonutMesh.getAbsolutePosition();
-                        const offset = donutAbs.subtract(centerAbs);
-                        savedDonutOffsets.push({ x: offset.x, y: offset.y, z: offset.z });
-                        saveOffsets();
-
-                        // Create persistent donut under center
-                        const d = createDonutMesh(new BABYLON.Color3(0.9, 0.6, 0.2));
-                        d.parent = centerDonutMesh;
-                        d.position = new BABYLON.Vector3(offset.x, offset.y, offset.z);
-                        currentDonutMeshes.push(d);
-
-                        // Clean up transient anchor + donut
-                        try { if (anchors.removeAnchor) anchors.removeAnchor(anchor); else anchor.dispose(); } catch(e){}
-                        try { donut.dispose(); } catch(e){}
+                    // If a center already exists, replace it
+                    if (centerAnchor) {
+                        try { if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose(); } catch(e){}
+                        if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} }
                     }
+
+                    centerAnchor = anchor;
+                    centerDonutMesh = donut;
+
+                    // Parent modelRoot under the center donut, preserving browser transform
+                    const savedPos = modelRoot.position.clone();
+                    const savedRot = modelRoot.rotation.clone();
+                    const savedScl = modelRoot.scaling.clone();
+                    modelRoot.parent = centerDonutMesh;
+                    modelRoot.position.copyFrom(savedPos);
+                    modelRoot.rotation.copyFrom(savedRot);
+                    modelRoot.scaling.copyFrom(savedScl);
+                    if (originalMesh) originalMesh.isVisible = true;
+                    if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
+                    shadowGenerator.addShadowCaster(originalMesh, true);
                 });
             }
 
