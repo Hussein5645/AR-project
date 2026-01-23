@@ -57,7 +57,6 @@
         <label>Z: <input id="ctrl-z" type="number" step="0.01" value="0"></label>
         <label>RotY: <input id="ctrl-ry" type="number" step="1" value="0"></label>
         <label>Scale: <input id="ctrl-scale" type="number" step="0.01" value="1"></label>
-        <label>Keep World on Recenter: <input id="ctrl-keep-world" type="checkbox" checked></label>
         <button id="place-btn">Place Model</button>
         <button id="remove-btn" style="background:#c0392b;color:#fff;">Rest</button>
     </div>
@@ -281,21 +280,8 @@
             const ctrlZ = document.getElementById('ctrl-z');
             const ctrlRY = document.getElementById('ctrl-ry');
             const ctrlScale = document.getElementById('ctrl-scale');
-            const keepWorldCb = document.getElementById('ctrl-keep-world');
             const placeBtn = document.getElementById('place-btn');
             const removeBtn = document.getElementById('remove-btn');
-
-            // Keep-world toggle state
-            let keepWorldOnRecenter = true;
-            try {
-                const stored = sessionStorage.getItem('keepWorldOnRecenter');
-                if (stored !== null) keepWorldOnRecenter = (stored === 'true');
-            } catch(e) {}
-            if (keepWorldCb) keepWorldCb.checked = keepWorldOnRecenter;
-            if (keepWorldCb) keepWorldCb.addEventListener('change', () => {
-                keepWorldOnRecenter = keepWorldCb.checked;
-                try { sessionStorage.setItem('keepWorldOnRecenter', keepWorldOnRecenter ? 'true' : 'false'); } catch(e) {}
-            });
 
             function placeModelInBrowser() {
                 const px = parseFloat(ctrlX.value) || 0;
@@ -451,13 +437,26 @@
 
             // 8. Hit Testing Logic
             let hitTest;
+            let lastValidHit = null;
+            let pendingFinalize = false;
 
             xrTest.onHitTestResultObservable.add((results) => {
                 if (results.length) {
                     marker.isVisible = true;
                     hitTest = results[0];
+                    lastValidHit = results[0];
                     // Update marker position/rotation to match the floor surface
                     hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
+                    // If we were waiting for a valid hit to finalize, do it now
+                    if (pendingFinalize && anchors) {
+                        try {
+                            lastHoldMatrix = hitTest.transformationMatrix.clone();
+                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                            triggerHapticFeedback();
+                        } catch(e) {}
+                        pendingFinalize = false;
+                        cancelHold();
+                    }
                 } else {
                     marker.isVisible = false;
                     hitTest = undefined;
@@ -471,7 +470,6 @@
                     const savedPos = modelRoot.position.clone();
                     const savedRot = modelRoot.rotation.clone();
                     const savedScl = modelRoot.scaling.clone();
-                    const worldMatBefore = modelRoot.getWorldMatrix().clone();
 
                     if (!centerAnchor || !centerDonutMesh) {
                         // First time: create center donut and attach to anchor
@@ -502,23 +500,9 @@
 
                     // Re-parent based on toggle
                     modelRoot.parent = centerDonutMesh;
-                    if (keepWorldOnRecenter) {
-                        const parentWorld = centerDonutMesh.getWorldMatrix().clone();
-                        const invParent = BABYLON.Matrix.Invert(parentWorld);
-                        const localMat = invParent.multiply(worldMatBefore);
-                        const scl = new BABYLON.Vector3();
-                        const rotQ = new BABYLON.Quaternion();
-                        const trs = new BABYLON.Vector3();
-                        localMat.decompose(scl, rotQ, trs);
-                        const euler = rotQ.toEulerAngles();
-                        modelRoot.position.copyFrom(trs);
-                        modelRoot.rotation.copyFrom(euler);
-                        modelRoot.scaling.copyFrom(scl);
-                    } else {
-                        modelRoot.position.copyFrom(savedPos);
-                        modelRoot.rotation.copyFrom(savedRot);
-                        modelRoot.scaling.copyFrom(savedScl);
-                    }
+                    modelRoot.position.copyFrom(savedPos);
+                    modelRoot.rotation.copyFrom(savedRot);
+                    modelRoot.scaling.copyFrom(savedScl);
                     if (originalMesh) originalMesh.isVisible = true;
                     if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
                     shadowGenerator.addShadowCaster(originalMesh, true);
@@ -621,6 +605,8 @@
             engine.runRenderLoop(function () {
                 if (scene) {
                     scene.render();
+        let lastValidHit = null;
+        let pendingFinalize = false;
                 }
             });
         });
