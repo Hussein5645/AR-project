@@ -19,6 +19,25 @@
                 touch-action: none;
                 outline: none;
             }
+            #browser-controls {
+                position: fixed;
+                left: 10px;
+                bottom: 10px;
+                background: rgba(0,0,0,0.7);
+                color: white;
+                padding: 8px;
+                border-radius: 6px;
+                z-index: 30;
+                font-family: Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                min-width: 180px;
+            }
+            #browser-controls label { font-size: 12px; display: flex; justify-content: space-between; }
+            #browser-controls input { width: 70px; }
+            #browser-controls .ctrl-header { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+            #browser-controls button { padding: 6px; border-radius:4px; border: none; cursor: pointer; }
         </style>
 
         <script src="https://cdn.babylonjs.com/babylon.js"></script>
@@ -30,6 +49,15 @@
 
    <body>
     <canvas id="renderCanvas"></canvas>
+    <div id="browser-controls">
+        <div class="ctrl-header">Browser Placement Controls</div>
+        <label>X: <input id="ctrl-x" type="number" step="0.01" value="0"></label>
+        <label>Y: <input id="ctrl-y" type="number" step="0.01" value="0"></label>
+        <label>Z: <input id="ctrl-z" type="number" step="0.01" value="0"></label>
+        <label>RotY: <input id="ctrl-ry" type="number" step="1" value="0"></label>
+        <label>Scale: <input id="ctrl-scale" type="number" step="0.01" value="1"></label>
+        <button id="place-btn">Place Model</button>
+    </div>
     
     <script>
         // === INITIALIZATION PHASE ===
@@ -166,6 +194,77 @@
             markerMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red glow
             marker.material = markerMat;
 
+            // --- Browser-only: origin marker, grid and single-instance placement controls ---
+            // Origin point
+            const origin = BABYLON.MeshBuilder.CreateSphere('originSphere', { diameter: 0.06 }, scene);
+            origin.position = new BABYLON.Vector3(0, 0, 0);
+            const originMat = new BABYLON.StandardMaterial('originMat', scene);
+            originMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
+            origin.material = originMat;
+
+            // X and Z axes lines
+            const axisLines = [];
+            axisLines.push(BABYLON.MeshBuilder.CreateLines('axisX', { points: [new BABYLON.Vector3(-2,0,0), new BABYLON.Vector3(2,0,0)] }, scene));
+            axisLines.push(BABYLON.MeshBuilder.CreateLines('axisZ', { points: [new BABYLON.Vector3(0,0,-2), new BABYLON.Vector3(0,0,2)] }, scene));
+            axisLines.forEach(l => { l.color = new BABYLON.Color3(1,0,0); });
+
+            // Simple grid (drawn with lines)
+            const gridLines = [];
+            const gridSize = 2;
+            const gridStep = 0.25;
+            for (let i = -gridSize; i <= gridSize; i += gridStep) {
+                gridLines.push(BABYLON.MeshBuilder.CreateLines('g1' + i, { points: [new BABYLON.Vector3(-gridSize,0,i), new BABYLON.Vector3(gridSize,0,i)] }, scene));
+                gridLines.push(BABYLON.MeshBuilder.CreateLines('g2' + i, { points: [new BABYLON.Vector3(i,0,-gridSize), new BABYLON.Vector3(i,0,gridSize)] }, scene));
+            }
+            gridLines.forEach(l => l.color = new BABYLON.Color3(0.5,0.5,0.5));
+
+            // Browser placement state
+            let browserInstance = null; // currently placed clone in browser mode
+
+            const ctrlX = document.getElementById('ctrl-x');
+            const ctrlY = document.getElementById('ctrl-y');
+            const ctrlZ = document.getElementById('ctrl-z');
+            const ctrlRY = document.getElementById('ctrl-ry');
+            const ctrlScale = document.getElementById('ctrl-scale');
+            const placeBtn = document.getElementById('place-btn');
+
+            function placeModelInBrowser() {
+                const px = parseFloat(ctrlX.value) || 0;
+                const py = parseFloat(ctrlY.value) || 0;
+                const pz = parseFloat(ctrlZ.value) || 0;
+                const ry = (parseFloat(ctrlRY.value) || 0) * (Math.PI/180);
+                const s = parseFloat(ctrlScale.value) || 1;
+
+                if (browserInstance) {
+                    const replace = confirm('There is already an instance of this model. OK = Replace, Cancel = Keep existing.');
+                    if (!replace) return; // keep existing
+                    // remove existing
+                    try { browserInstance.dispose(); } catch(e){}
+                    browserInstance = null;
+                }
+
+                // Clone the hidden original mesh and position relative to origin
+                browserInstance = originalMesh.clone('browserClone');
+                browserInstance.isVisible = true;
+                browserInstance.position = new BABYLON.Vector3(px, py, pz);
+                browserInstance.rotationQuaternion = null;
+                browserInstance.rotation = new BABYLON.Vector3(0, ry, 0);
+                browserInstance.scaling = new BABYLON.Vector3(s, s, s);
+                // If skeleton exists, clone and play
+                if (skeleton) {
+                    try {
+                        browserInstance.skeleton = skeleton.clone('browserCloneSkel');
+                        scene.beginAnimation(browserInstance.skeleton, 0, 100, true);
+                    } catch(e) { console.warn('skeleton clone failed', e); }
+                }
+                shadowGenerator.addShadowCaster(browserInstance, true);
+            }
+
+            placeBtn.addEventListener('click', placeModelInBrowser);
+
+            // Hide browser controls when entering XR
+            const hideBrowserControls = () => { const el = document.getElementById('browser-controls'); if (el) el.style.display = 'none'; };
+            const showBrowserControls = () => { const el = document.getElementById('browser-controls'); if (el) el.style.display = 'flex'; };
             // 6. WebXR Configuration
             // Check if AR is supported
             const arAvailable = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
@@ -201,9 +300,11 @@
             // Hide UI when in AR
             xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
                 rectangle.isVisible = false;
+                hideBrowserControls();
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
+                showBrowserControls();
             });
 
             // 8. Hit Testing Logic
