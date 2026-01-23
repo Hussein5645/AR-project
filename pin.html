@@ -211,12 +211,13 @@
             const originMat = new BABYLON.StandardMaterial('originMat', scene);
             originMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
             origin.material = originMat;
+            origin.isPickable = false;
 
             // X and Z axes lines
             const axisLines = [];
             axisLines.push(BABYLON.MeshBuilder.CreateLines('axisX', { points: [new BABYLON.Vector3(-2,0,0), new BABYLON.Vector3(2,0,0)] }, scene));
             axisLines.push(BABYLON.MeshBuilder.CreateLines('axisZ', { points: [new BABYLON.Vector3(0,0,-2), new BABYLON.Vector3(0,0,2)] }, scene));
-            axisLines.forEach(l => { l.color = new BABYLON.Color3(1,0,0); });
+            axisLines.forEach(l => { l.color = new BABYLON.Color3(1,0,0); l.isPickable = false; });
 
             // Infinite-looking grid using GridMaterial on a large ground plane
             let gridGround = BABYLON.MeshBuilder.CreateGround('gridGround', { width: 2000, height: 2000, subdivisions: 1 }, scene);
@@ -230,6 +231,28 @@
             gridGround.material = gridMat;
             gridGround.position.y = 0;
             gridGround.isPickable = false;
+
+            // Gizmo setup for browser mode manipulation
+            const gizmoManager = new BABYLON.GizmoManager(scene);
+            gizmoManager.clearGizmoOnEmptyPointerEvent = true;
+            gizmoManager.attachToMesh(null);
+            gizmoManager.positionGizmoEnabled = false;
+            gizmoManager.rotationGizmoEnabled = false;
+            gizmoManager.scaleGizmoEnabled = false;
+
+            function attachMoveGizmo() {
+                gizmoManager.attachToMesh(modelRoot);
+                gizmoManager.positionGizmoEnabled = true;
+                gizmoManager.rotationGizmoEnabled = false;
+                gizmoManager.scaleGizmoEnabled = false;
+            }
+
+            function detachGizmo() {
+                gizmoManager.attachToMesh(null);
+                gizmoManager.positionGizmoEnabled = false;
+                gizmoManager.rotationGizmoEnabled = false;
+                gizmoManager.scaleGizmoEnabled = false;
+            }
 
             // Adjust grid scale according to camera zoom
             function computeNiceStep(v) {
@@ -296,6 +319,22 @@
                 browserPlaced = false;
             }
             removeBtn.addEventListener('click', removeModelInBrowser);
+
+            // Keep numeric controls in sync after gizmo drags
+            function updateInputsFromModel() {
+                ctrlX.value = (modelRoot.position.x || 0).toFixed(2);
+                ctrlY.value = (modelRoot.position.y || 0).toFixed(2);
+                ctrlZ.value = (modelRoot.position.z || 0).toFixed(2);
+                ctrlRY.value = ((modelRoot.rotation.y || 0) * 180/Math.PI).toFixed(0);
+                const s = modelRoot.scaling.x || 1; // uniform
+                ctrlScale.value = s.toFixed(2);
+            }
+
+            scene.onBeforeRenderObservable.add(() => {
+                if (gizmoManager.gizmos && gizmoManager.gizmos.positionGizmo && gizmoManager.gizmos.positionGizmo.attachedMesh) {
+                    updateInputsFromModel();
+                }
+            });
 
             // Live updates: when placed, update transforms as user types
             function liveUpdateIfPlaced() {
@@ -383,6 +422,8 @@
                 if (originalMesh) { originalMesh.isVisible = false; }
                 // Detach modelRoot from any parent at AR start
                 modelRoot.parent = null;
+                // Detach gizmo in AR
+                if (typeof detachGizmo === 'function') detachGizmo();
                 // Clear current AR donuts (visuals), keep saved offsets; force re-center
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
                 currentDonutMeshes.forEach(m => { try { m.dispose(); } catch(e){} });
@@ -472,11 +513,29 @@
                 });
             }
 
-            // 10. Input Handling (Tap to Place)
+            // 10. Input Handling (Tap to Place / Click to select in browser)
             scene.onPointerDown = (evt, pickInfo) => {
+                // AR tap: add anchor
                 if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
                     // In AR: only place donut anchors via hit test (no model placement/move by user)
                     anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                    return;
+                }
+                // Browser click: attach gizmo when clicking the model
+                if (xr.baseExperience.state !== BABYLON.WebXRState.IN_XR && originalMesh && originalMesh.isVisible) {
+                    const pick = scene.pick(scene.pointerX, scene.pointerY);
+                    if (pick.hit && pick.pickedMesh) {
+                        const m = pick.pickedMesh;
+                        const isOnModel = (m === originalMesh) || (m.isDescendantOf && m.isDescendantOf(originalMesh));
+                        if (isOnModel) {
+                            attachMoveGizmo();
+                        } else {
+                            // click elsewhere clears gizmo
+                            detachGizmo();
+                        }
+                    } else {
+                        detachGizmo();
+                    }
                 }
             };
 
