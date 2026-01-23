@@ -297,14 +297,29 @@
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
             // const bgRemover = fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
 
+            // AR single-instance tracking
+            let arInstanceAnchor = null;
+            let arInstanceNode = null;
+
             // Hide UI when in AR
             xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
                 rectangle.isVisible = false;
                 hideBrowserControls();
+                // Hide origin/grid in AR so canvas starts empty
+                origin.setEnabled(false);
+                axisLines.forEach(l => l.setEnabled(false));
+                gridLines.forEach(l => l.setEnabled(false));
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
                 showBrowserControls();
+                // Restore origin/grid after AR session ends
+                origin.setEnabled(true);
+                axisLines.forEach(l => l.setEnabled(true));
+                gridLines.forEach(l => l.setEnabled(true));
+                // Clear AR instance tracking
+                arInstanceAnchor = null;
+                arInstanceNode = null;
             });
 
             // 8. Hit Testing Logic
@@ -325,24 +340,55 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
-                    // Clone the mesh at the anchor point
+                    // When a new anchor is added, attach (single-instance)
+                    // If a previous instance somehow exists, dispose it defensively
+                    if (arInstanceNode && arInstanceNode.dispose) {
+                        try { arInstanceNode.dispose(); } catch(e) {}
+                    }
+                    arInstanceAnchor = anchor;
                     anchor.attachedNode = originalMesh.clone("clone");
                     anchor.attachedNode.isVisible = true;
-                    
-                    // Clone skeleton if it exists to enable animation on the new mesh
+                    arInstanceNode = anchor.attachedNode;
+
                     if (skeleton) {
-                         anchor.attachedNode.skeleton = skeleton.clone('cloneSkeleton');
-                         // Play animation on the new skeleton
-                         scene.beginAnimation(anchor.attachedNode.skeleton, 0, 100, true);
+                        try {
+                            anchor.attachedNode.skeleton = skeleton.clone('cloneSkeleton');
+                            scene.beginAnimation(anchor.attachedNode.skeleton, 0, 100, true);
+                        } catch(e) { console.warn('AR skeleton clone failed', e); }
                     }
-                    
+
                     shadowGenerator.addShadowCaster(anchor.attachedNode, true);
                 });
+
+                if (anchors.onAnchorRemovedObservable) {
+                    anchors.onAnchorRemovedObservable.add(anchor => {
+                        if (arInstanceAnchor === anchor) {
+                            arInstanceAnchor = null;
+                            arInstanceNode = null;
+                        }
+                    });
+                }
             }
 
             // 10. Input Handling (Tap to Place)
             scene.onPointerDown = (evt, pickInfo) => {
                 if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
+                    if (arInstanceAnchor) {
+                        const replace = confirm('There is already an instance placed. OK = Replace, Cancel = Keep existing.');
+                        if (!replace) {
+                            return; // keep existing, do not place new
+                        }
+                        // Remove previous anchor/node before placing new
+                        try {
+                            if (arInstanceNode && arInstanceNode.dispose) arInstanceNode.dispose();
+                        } catch(e) {}
+                        try {
+                            if (anchors.removeAnchor) anchors.removeAnchor(arInstanceAnchor);
+                            else if (arInstanceAnchor.dispose) arInstanceAnchor.dispose();
+                        } catch(e) {}
+                        arInstanceAnchor = null;
+                        arInstanceNode = null;
+                    }
                     anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
                 }
             };
