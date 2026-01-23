@@ -474,6 +474,16 @@
                 centerAnchor = null;
             }
 
+            function snapDonutToMarker() {
+                if (!centerDonutMesh) return;
+                if (marker && marker.rotationQuaternion) {
+                    centerDonutMesh.position.copyFrom(marker.position);
+                    if (centerDonutMesh.rotationQuaternion) {
+                        centerDonutMesh.rotationQuaternion.copyFrom(marker.rotationQuaternion);
+                    }
+                }
+            }
+
             // Hide UI when in AR
             xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
                 rectangle.isVisible = false;
@@ -697,6 +707,8 @@
                     if (centerDonutMesh && centerDonutMesh.rotationQuaternion) {
                         lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
                     }
+                    // Ensure donut is on top of marker visually
+                    snapDonutToMarker();
                     // Ensure model is parented to donut instantly even before anchor resolves
                     if (centerDonutMesh) {
                         const savedPos = modelRoot.position.clone();
