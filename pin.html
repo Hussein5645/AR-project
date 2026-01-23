@@ -491,6 +491,14 @@
             let holdStart = 0;
             const HOLD_THRESHOLD_MS = 800;
 
+            function triggerHapticFeedback() {
+                try {
+                    if (navigator && typeof navigator.vibrate === 'function') {
+                        navigator.vibrate(40);
+                    }
+                } catch (e) {}
+            }
+
             function startHoldIfAR() {
                 if (!hitTest || !anchors || xr.baseExperience.state !== BABYLON.WebXRState.IN_XR) return false;
                 holdActive = true;
@@ -511,6 +519,8 @@
                 if (!anchors || !hitTest) { cancelHold(); return; }
                 // create/assign anchor at current hit test
                 try { await anchors.addAnchorPointUsingHitTestResultAsync(hitTest); } catch(e) {}
+                // haptic feedback on completion
+                triggerHapticFeedback();
                 cancelHold();
             }
 
