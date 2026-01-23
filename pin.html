@@ -478,9 +478,10 @@
                         const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
                         centerDonutMesh = createDonutMesh(donutColor);
                         anchor.attachedNode = centerDonutMesh;
-                        // Apply current hit-test pose immediately to the donut
-                        if (hitTest && centerDonutMesh.rotationQuaternion) {
-                            hitTest.transformationMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        // Apply snapped hold pose immediately to the donut
+                        if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
+                            lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                            lastHoldMatrix = null;
                         }
                         centerAnchor = anchor;
                     } else {
@@ -492,9 +493,10 @@
                         // Reassign center to new anchor without recreating the donut
                         centerAnchor = anchor;
                         anchor.attachedNode = centerDonutMesh;
-                        // Apply current hit-test pose immediately to the donut
-                        if (hitTest && centerDonutMesh.rotationQuaternion) {
-                            hitTest.transformationMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        // Apply snapped hold pose immediately to the donut
+                        if (lastHoldMatrix && centerDonutMesh.rotationQuaternion) {
+                            lastHoldMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                            lastHoldMatrix = null;
                         }
                     }
 
@@ -527,6 +529,7 @@
             let holdActive = false;
             let holdStart = 0;
             const HOLD_THRESHOLD_MS = 800;
+            let lastHoldMatrix = null;
 
             function triggerHapticFeedback() {
                 try {
@@ -555,7 +558,11 @@
             async function finalizeHoldIfReady() {
                 if (!anchors || !hitTest) { cancelHold(); return; }
                 // create/assign anchor at current hit test
-                try { await anchors.addAnchorPointUsingHitTestResultAsync(hitTest); } catch(e) {}
+                try {
+                    // snapshot matrix to ensure consistent pose application in anchorAdded
+                    lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                } catch(e) {}
                 // haptic feedback on completion
                 triggerHapticFeedback();
                 cancelHold();
@@ -565,16 +572,13 @@
                 if (!holdActive) return;
                 const now = performance.now();
                 const ratio = Math.min(1, (now - holdStart) / HOLD_THRESHOLD_MS);
-                // First placement: use marker color as progress
-                if (!centerDonutMesh) {
-                    const start = new BABYLON.Color3(1, 0.6, 0); // orange
-                    const end = new BABYLON.Color3(0, 0.8, 1);   // cyan
-                    markerMat.emissiveColor = BABYLON.Color3.Lerp(start, end, ratio);
-                } else if (centerDonutMesh.material) {
-                    const start = new BABYLON.Color3(0, 0.6, 0.9); // bluish
-                    const end = new BABYLON.Color3(1, 1, 1);       // white glow
-                    centerDonutMesh.material.emissiveColor = BABYLON.Color3.Lerp(start, end, ratio);
-                }
+                // Always use marker color at target location for progress
+                const start = new BABYLON.Color3(1, 0.6, 0); // orange
+                const end = new BABYLON.Color3(0, 0.8, 1);   // cyan
+                markerMat.emissiveColor = BABYLON.Color3.Lerp(start, end, ratio);
+                // Optional subtle scale pulse
+                const pulse = 0.9 + 0.2 * ratio;
+                marker.scaling.set(pulse, pulse, pulse);
                 if (ratio >= 1) {
                     finalizeHoldIfReady();
                 }
