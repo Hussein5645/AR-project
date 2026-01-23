@@ -3,7 +3,7 @@
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        <title>Babylon.js WebXR Standalone: Dummy3</title>
+        <title>Babylon.js WebXR AR: Dummy3</title>
 
         <style>
             html, body {
@@ -22,9 +22,7 @@
         </style>
 
         <script src="https://cdn.babylonjs.com/babylon.js"></script>
-        
         <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-        
         <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
     </head>
 
@@ -33,95 +31,165 @@
     
     <script>
         // === INITIALIZATION PHASE ===
-        // Get the canvas element from the DOM
         const canvas = document.getElementById("renderCanvas");
-
-        // Initialize the Babylon 3D engine
-        // 'true' enables antialiasing for smoother edges in VR 
         const engine = new BABYLON.Engine(canvas, true);
 
         // === SCENE CREATION LOGIC ===
-        // This function encapsulates the entire scene setup.
-        // It is async to handle the Promise-based Asset Loading and XR setup.
         const createScene = async function () {
             
-            // 1. Create the Scene Object
+            // 1. Basic Scene Setup
             const scene = new BABYLON.Scene(engine);
-
-            // 2. Camera Setup (Non-XR Fallback)
-            // This ArcRotateCamera allows the user to view the model on a standard monitor.
-            // Parameters: Name, Alpha (rotation), Beta (rotation), Radius, Target.
+            
+            // Non-AR Camera (for testing on PC)
             const camera = new BABYLON.ArcRotateCamera("camera1", Math.PI / 2, Math.PI / 2.5, 5, new BABYLON.Vector3(0, 1, 0), scene);
-            // Attach inputs (mouse/touch) to the canvas
             camera.attachControl(canvas, true);
-            // Set the wheel precision for smoother zooming
             camera.wheelPrecision = 50;
 
-            // 3. Lighting Setup
-            // HemisphericLight simulates ambient sky light, ensuring the model is lit from all sides.
+            // 2. Lighting for AR
+            // Ambient light
             const light = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
             light.intensity = 0.7;
 
-            // 4. Asset Loading 
-            // We use the absolute URL to the playground asset to avoid local path errors.
+            // Directional light for shadows
+            var dirLight = new BABYLON.DirectionalLight('dirlight', new BABYLON.Vector3(0, -1, -0.5), scene);
+            dirLight.position = new BABYLON.Vector3(0, 5, -5);
+
+            // Shadow Generator
+            var shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
+            shadowGenerator.useBlurExponentialShadowMap = true;
+            shadowGenerator.blurKernel = 32;
+
+            // 3. UI Setup (Instructions)
+            const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("FullscreenUI");
+            const rectangle = new BABYLON.GUI.Rectangle("rect");
+            rectangle.background = "black";
+            rectangle.color = "blue";
+            rectangle.width = "80%";
+            rectangle.height = "20%";
+            rectangle.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+            rectangle.top = "20px";
+            advancedTexture.addControl(rectangle);
+
+            const text1 = new BABYLON.GUI.TextBlock("text1");
+            text1.text = "Initializing AR...";
+            text1.color = "white";
+            text1.fontSize = "14px";
+            text1.textWrapping = true;
+            rectangle.addControl(text1);
+
+            // 4. Asset Loading
             const dummy3URL = "https://playground.babylonjs.com/scenes/dummy3.babylon";
+            console.log("Status: Starting Asset Load");
+
+            const result = await BABYLON.SceneLoader.ImportMeshAsync("", dummy3URL, "", scene);
             
-            console.log("Status: Starting Asset Load from " + dummy3URL);
+            // Prepare the mesh
+            let originalMesh = result.meshes[0];
+            originalMesh.rotationQuaternion = new BABYLON.Quaternion();
+            originalMesh.isVisible = false; // Hide original, we will clone it on tap
 
-            try {
-                // ImportMeshAsync is the modern, Promise-based loader.
-                // It handles the network request and parsing.
-                const result = await BABYLON.SceneLoader.ImportMeshAsync("", dummy3URL, "", scene);
-                
-                console.log("Status: Asset Loaded Successfully");
-                
-                // 5. Mesh Configuration
-                const dummyMesh = result.meshes;
-                // Ensure the mesh is positioned at the center
-                dummyMesh.position = new BABYLON.Vector3(0, 0, 0);
-                
-                // 6. Animation Handling [7, 14]
-                // The loaded asset contains skeletons and animation ranges.
-                if (result.skeletons.length > 0) {
-                    const skeleton = result.skeletons;
-                    // Play the animation (frames 0 to 100, looped)
-                    scene.beginAnimation(skeleton, 0, 100, true, 1.0);
-                }
-
-                // 7. Environment Setup for WebXR [15]
-                // XR Teleportation requires a ground mesh.
-                // We use the default environment helper to create a ground and skybox.
-                const env = scene.createDefaultEnvironment({
-                    createSkybox: true,
-                    skyboxSize: 150,
-                    skyboxColor: new BABYLON.Color3(0.1, 0.1, 0.1),
-                    createGround: true,
-                    groundSize: 15,
-                    groundColor: new BABYLON.Color3(0.2, 0.2, 0.2),
-                    enableGroundShadow: true,
-                });
-
-                // 8. WebXR Initialization [12, 16]
-                // This creates the XR experience helper.
-                // It automatically adds the UI button to enter VR/AR.
-                // We pass the ground mesh to enable the teleportation feature.
-                const xr = await scene.createDefaultXRExperienceAsync({
-                    floorMeshes: [env.ground]
-                });
-                
-                console.log("Status: WebXR Initialized");
-
-            } catch (error) {
-                console.error("Error during scene creation:", error);
+            // Prepare the skeleton and animation
+            let skeleton = result.skeletons[0];
+            if(skeleton) {
+                skeleton.animationPropertiesOverride = new BABYLON.AnimationPropertiesOverride();
+                skeleton.animationPropertiesOverride.enableBlending = true;
+                skeleton.animationPropertiesOverride.blendingSpeed = 0.05;
+                skeleton.animationPropertiesOverride.loopMode = 1;
             }
+            
+            // 5. Create the Target Marker (The ring on the floor)
+            const marker = BABYLON.MeshBuilder.CreateTorus('marker', { diameter: 0.15, thickness: 0.05 });
+            marker.isVisible = false;
+            marker.rotationQuaternion = new BABYLON.Quaternion();
+            const markerMat = new BABYLON.StandardMaterial("markerMat", scene);
+            markerMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red glow
+            marker.material = markerMat;
+
+            // 6. WebXR Configuration
+            // Check if AR is supported
+            const arAvailable = await BABYLON.WebXRSessionManager.IsSessionSupportedAsync('immersive-ar');
+
+            if (!arAvailable) {
+                text1.text = "AR is not available on this device. Please use a mobile phone with ARCore/ARKit.";
+                return scene;
+            }
+
+            text1.text = "AR Ready! Click the Goggles button at bottom-right.\nOnce in AR, look at the floor to find a surface, then TAP to place the robot.";
+
+            // Initialize XR with AR options
+            const xr = await scene.createDefaultXRExperienceAsync({
+                uiOptions: {
+                    sessionMode: 'immersive-ar', // KEY: This enables AR instead of VR
+                },
+                optionalFeatures: true // Enable all optional features like hit-test
+            });
+
+            // 7. AR Features Manager
+            const fm = xr.baseExperience.featuresManager;
+            
+            // Enable Hit Test (detecting floor)
+            const xrTest = fm.enableFeature(BABYLON.WebXRHitTest.Name, "latest");
+            
+            // Enable Anchors (keeping object in place)
+            const anchors = fm.enableFeature(BABYLON.WebXRAnchorSystem.Name, 'latest');
+            
+            // Enable Background Remover (so you see the camera feed)
+            // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
+            // const bgRemover = fm.enableFeature(BABYLON.WebXRBackgroundRemover.Name);
+
+            // Hide UI when in AR
+            xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
+                rectangle.isVisible = false;
+            });
+            xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
+                rectangle.isVisible = true;
+            });
+
+            // 8. Hit Testing Logic
+            let hitTest;
+
+            xrTest.onHitTestResultObservable.add((results) => {
+                if (results.length) {
+                    marker.isVisible = true;
+                    hitTest = results[0];
+                    // Update marker position/rotation to match the floor surface
+                    hitTest.transformationMatrix.decompose(undefined, marker.rotationQuaternion, marker.position);
+                } else {
+                    marker.isVisible = false;
+                    hitTest = undefined;
+                }
+            });
+
+            // 9. Anchor Logic (Placing the object)
+            if (anchors) {
+                anchors.onAnchorAddedObservable.add(anchor => {
+                    // Clone the mesh at the anchor point
+                    anchor.attachedNode = originalMesh.clone("clone");
+                    anchor.attachedNode.isVisible = true;
+                    
+                    // Clone skeleton if it exists to enable animation on the new mesh
+                    if (skeleton) {
+                         anchor.attachedNode.skeleton = skeleton.clone('cloneSkeleton');
+                         // Play animation on the new skeleton
+                         scene.beginAnimation(anchor.attachedNode.skeleton, 0, 100, true);
+                    }
+                    
+                    shadowGenerator.addShadowCaster(anchor.attachedNode, true);
+                });
+            }
+
+            // 10. Input Handling (Tap to Place)
+            scene.onPointerDown = (evt, pickInfo) => {
+                if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
+                    anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
+                }
+            };
 
             return scene;
         };
 
         // === EXECUTION PHASE ===
-        // Call the createScene function
         createScene().then((scene) => {
-            // Register the render loop to repeatedly render the scene
             engine.runRenderLoop(function () {
                 if (scene) {
                     scene.render();
@@ -129,8 +197,6 @@
             });
         });
 
-        // === RESPONSIVE DESIGN ===
-        // Watch for browser resize events to adjust the WebGL canvas
         window.addEventListener("resize", function () {
             engine.resize();
         });
