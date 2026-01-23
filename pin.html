@@ -409,6 +409,43 @@
             } catch (e) {
                 console.warn("Plane detector not available", e);
             }
+
+            // Optional: GIS (Geolocation) layer to validate anchoring to real world
+            const GEO_MAX_ACCURACY_M = 5;
+            let geoEnabled = false;
+            let geoAccuracy = Infinity;
+            let geoWatchId = null;
+
+            function startGeoWatch() {
+                if (!navigator.geolocation) return;
+                geoEnabled = true;
+                geoAccuracy = Infinity;
+                geoWatchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        geoAccuracy = pos && pos.coords && typeof pos.coords.accuracy === "number"
+                            ? pos.coords.accuracy
+                            : Infinity;
+                    },
+                    (err) => {
+                        geoEnabled = false;
+                        geoAccuracy = Infinity;
+                        console.warn("Geolocation error", err);
+                    },
+                    { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+                );
+            }
+
+            function stopGeoWatch() {
+                if (geoWatchId != null && navigator.geolocation) {
+                    navigator.geolocation.clearWatch(geoWatchId);
+                }
+                geoWatchId = null;
+                geoAccuracy = Infinity;
+            }
+
+            function isGeoReady() {
+                return !geoEnabled || geoAccuracy <= GEO_MAX_ACCURACY_M;
+            }
             
             // Enable Background Remover (so you see the camera feed)
             // Note: createDefaultXRExperienceAsync usually does this automatically for AR, but we ensure it here
@@ -443,6 +480,11 @@
                 // Clear center donut; force re-center on next tap
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
                 centerAnchor = null;
+                pendingFinalize = false;
+                anchoringInProgress = false;
+
+                // Start GIS tracking for anchoring validation
+                startGeoWatch();
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
@@ -456,6 +498,11 @@
                 // Clear session visuals
                 if (centerDonutMesh) { try { centerDonutMesh.dispose(); } catch(e){} centerDonutMesh = null; }
                 centerAnchor = null;
+                pendingFinalize = false;
+                anchoringInProgress = false;
+
+                // Stop GIS tracking
+                stopGeoWatch();
             });
 
             // Global state changes: ensure clean tracking state
@@ -464,6 +511,9 @@
                     cancelHold();
                     marker.isVisible = false;
                     stableHitCount = 0;
+                    stopGeoWatch();
+                    pendingFinalize = false;
+                    anchoringInProgress = false;
                 }
             });
 
@@ -471,6 +521,7 @@
             let hitTest;
             let lastValidHit = null;
             let pendingFinalize = false;
+            let anchoringInProgress = false;
 
             // Stability filtering
             let lastHitPos = null;
@@ -486,6 +537,28 @@
             function composeMatrix(pos, rot) {
                 const scl = BABYLON.Vector3.One();
                 return BABYLON.Matrix.Compose(scl, rot, pos);
+            }
+
+            function requestAnchorPlacement() {
+                if (!anchors) { pendingFinalize = false; return; }
+                if (anchoringInProgress) { pendingFinalize = true; return; }
+                if (!hitTest || stableHitCount < STABLE_FRAMES) { pendingFinalize = true; return; }
+                if (!isGeoReady()) { pendingFinalize = true; return; }
+
+                anchoringInProgress = true;
+                pendingFinalize = false;
+                try {
+                    if (smoothedPos && smoothedRot) {
+                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
+                    } else {
+                        lastHoldMatrix = hitTest.transformationMatrix.clone();
+                    }
+                    anchors.addAnchorPointUsingHitTestResultAsync(hitTest)
+                        .catch(() => { anchoringInProgress = false; })
+                        .finally(() => { /* anchorAdded will clear in-progress */ });
+                } catch(e) {
+                    anchoringInProgress = false;
+                }
             }
 
             xrTest.onHitTestResultObservable.add((results) => {
@@ -529,14 +602,12 @@
                     }
 
                     // If we were waiting for a valid hit to finalize, do it now
-                    if (pendingFinalize && anchors && stableHitCount >= STABLE_FRAMES) {
-                        try {
-                            lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
-                            anchors.addAnchorPointUsingHitTestResultAsync(hitTest || results[0]);
+                    if (pendingFinalize && anchors && stableHitCount >= STABLE_FRAMES && isGeoReady()) {
+                        requestAnchorPlacement();
+                        if (!anchoringInProgress) {
                             triggerHapticFeedback();
-                        } catch(e) {}
-                        pendingFinalize = false;
-                        cancelHold();
+                            cancelHold();
+                        }
                     }
                 } else {
                     marker.isVisible = false;
@@ -548,6 +619,7 @@
             // 9. Anchor Logic (Placing the object)
             if (anchors) {
                 anchors.onAnchorAddedObservable.add(anchor => {
+                    anchoringInProgress = false;
                     // Preserve model local transform before switching parent
                     const savedPos = modelRoot.position.clone();
                     const savedRot = modelRoot.rotation.clone();
@@ -569,7 +641,11 @@
                         // Detach model to preserve local transform while switching anchors
                         modelRoot.parent = null;
                         // Remove old anchor to avoid conflicting updates
-                        try { if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose(); } catch(e){}
+                        try {
+                            if (centerAnchor && centerAnchor !== anchor) {
+                                if (anchors.removeAnchor) anchors.removeAnchor(centerAnchor); else centerAnchor.dispose();
+                            }
+                        } catch(e){}
                         // Reassign center to new anchor without recreating the donut
                         centerAnchor = anchor;
                         anchor.attachedNode = centerDonutMesh;
@@ -588,6 +664,11 @@
                     if (originalMesh) originalMesh.isVisible = true;
                     if (skeleton) { try { scene.beginAnimation(skeleton, 0, 100, true); } catch(e) {} }
                     shadowGenerator.addShadowCaster(originalMesh, true);
+
+                    // If a new request came while anchoring, retry now
+                    if (pendingFinalize) {
+                        requestAnchorPlacement();
+                    }
                 });
             }
 
@@ -623,23 +704,11 @@
 
             async function finalizeHoldIfReady() {
                 if (!anchors) { cancelHold(); return; }
-                if (!hitTest || stableHitCount < STABLE_FRAMES) {
-                    pendingFinalize = true;
-                    return;
+                requestAnchorPlacement();
+                if (!anchoringInProgress) {
+                    triggerHapticFeedback();
+                    cancelHold();
                 }
-                // create/assign anchor at current hit test
-                try {
-                    // snapshot matrix to ensure consistent pose application in anchorAdded
-                    if (smoothedPos && smoothedRot) {
-                        lastHoldMatrix = composeMatrix(smoothedPos, smoothedRot);
-                    } else {
-                        lastHoldMatrix = hitTest.transformationMatrix.clone();
-                    }
-                    await anchors.addAnchorPointUsingHitTestResultAsync(hitTest);
-                } catch(e) {}
-                // haptic feedback on completion
-                triggerHapticFeedback();
-                cancelHold();
             }
 
             function updateHoldIndicator() {
