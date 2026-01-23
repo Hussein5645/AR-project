@@ -58,7 +58,7 @@
         <label>RotY: <input id="ctrl-ry" type="number" step="1" value="0"></label>
         <label>Scale: <input id="ctrl-scale" type="number" step="0.01" value="1"></label>
         <button id="place-btn">Place Model</button>
-        <button id="remove-btn" style="background:#c0392b;color:#fff;">Remove</button>
+        <button id="remove-btn" style="background:#c0392b;color:#fff;">Rest</button>
     </div>
     
     <script>
@@ -420,10 +420,7 @@
             scene.onPointerDown = (evt, pickInfo) => {
                 if (hitTest && anchors && xr.baseExperience.state === BABYLON.WebXRState.IN_XR) {
                     if (arInstanceAnchor) {
-                        const replace = confirm('There is already an instance placed. OK = Replace, Cancel = Keep existing.');
-                        if (!replace) {
-                            return; // keep existing, do not place new
-                        }
+
                         // Remove previous anchor before placing new
                         try {
                             if (anchors.removeAnchor) anchors.removeAnchor(arInstanceAnchor);
