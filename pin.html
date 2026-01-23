@@ -43,6 +43,7 @@
         <script src="https://cdn.babylonjs.com/babylon.js"></script>
         <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
         <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+        <script src="https://cdn.babylonjs.com/materialsLibrary/babylon.gridMaterial.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1117.0/dist/aws-sdk.min.js"></script>
         <script src="aws-config.js"></script>
     </head>
@@ -171,11 +172,16 @@
             }
 
             const result = await BABYLON.SceneLoader.ImportMeshAsync("", rootUrl, sceneFilename, scene);
-            
-            // Prepare the mesh
+
+            // Ensure canvas starts empty: hide all imported meshes
+            result.meshes.forEach(m => { m.isVisible = false; });
+
+            // Prepare the mesh (use first as template for cloning)
             let originalMesh = result.meshes[0];
-            originalMesh.rotationQuaternion = new BABYLON.Quaternion();
-            originalMesh.isVisible = false; // Hide original, we will clone it on tap
+            if (originalMesh) {
+                originalMesh.rotationQuaternion = new BABYLON.Quaternion();
+                originalMesh.isVisible = false; // explicit
+            }
 
             // Prepare the skeleton and animation
             let skeleton = result.skeletons[0];
@@ -208,15 +214,18 @@
             axisLines.push(BABYLON.MeshBuilder.CreateLines('axisZ', { points: [new BABYLON.Vector3(0,0,-2), new BABYLON.Vector3(0,0,2)] }, scene));
             axisLines.forEach(l => { l.color = new BABYLON.Color3(1,0,0); });
 
-            // Simple grid (drawn with lines)
-            const gridLines = [];
-            const gridSize = 2;
-            const gridStep = 0.25;
-            for (let i = -gridSize; i <= gridSize; i += gridStep) {
-                gridLines.push(BABYLON.MeshBuilder.CreateLines('g1' + i, { points: [new BABYLON.Vector3(-gridSize,0,i), new BABYLON.Vector3(gridSize,0,i)] }, scene));
-                gridLines.push(BABYLON.MeshBuilder.CreateLines('g2' + i, { points: [new BABYLON.Vector3(i,0,-gridSize), new BABYLON.Vector3(i,0,gridSize)] }, scene));
-            }
-            gridLines.forEach(l => l.color = new BABYLON.Color3(0.5,0.5,0.5));
+            // Infinite-looking grid using GridMaterial on a large ground plane
+            let gridGround = BABYLON.MeshBuilder.CreateGround('gridGround', { width: 2000, height: 2000, subdivisions: 1 }, scene);
+            let gridMat = new BABYLON.GridMaterial('gridMat', scene);
+            gridMat.majorUnitFrequency = 1;       // major lines every 1 unit
+            gridMat.minorUnitVisibility = 0.45;   // show minor lines
+            gridMat.gridRatio = 0.25;             // units spacing scaling
+            gridMat.mainColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            gridMat.lineColor = new BABYLON.Color3(0.6, 0.6, 0.6);
+            gridMat.backFaceCulling = false;
+            gridGround.material = gridMat;
+            gridGround.position.y = 0;
+            gridGround.isPickable = false;
 
             // Browser placement state
             let browserInstance = null; // currently placed clone in browser mode
@@ -308,7 +317,7 @@
                 // Hide origin/grid in AR so canvas starts empty
                 origin.setEnabled(false);
                 axisLines.forEach(l => l.setEnabled(false));
-                gridLines.forEach(l => l.setEnabled(false));
+                if (gridGround) gridGround.setEnabled(false);
             });
             xr.baseExperience.sessionManager.onXRSessionEnded.add(() => {
                 rectangle.isVisible = true;
@@ -316,7 +325,7 @@
                 // Restore origin/grid after AR session ends
                 origin.setEnabled(true);
                 axisLines.forEach(l => l.setEnabled(true));
-                gridLines.forEach(l => l.setEnabled(true));
+                if (gridGround) gridGround.setEnabled(true);
                 // Clear AR instance tracking
                 arInstanceAnchor = null;
                 arInstanceNode = null;
