@@ -463,6 +463,10 @@
                         const donutColor = new BABYLON.Color3(0, 0.8, 1); // cyan center
                         centerDonutMesh = createDonutMesh(donutColor);
                         anchor.attachedNode = centerDonutMesh;
+                        // Apply current hit-test pose immediately to the donut
+                        if (hitTest && centerDonutMesh.rotationQuaternion) {
+                            hitTest.transformationMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        }
                         centerAnchor = anchor;
                     } else {
                         // Subsequent taps: move center by reassigning the same donut to the new anchor
@@ -473,6 +477,10 @@
                         // Reassign center to new anchor without recreating the donut
                         centerAnchor = anchor;
                         anchor.attachedNode = centerDonutMesh;
+                        // Apply current hit-test pose immediately to the donut
+                        if (hitTest && centerDonutMesh.rotationQuaternion) {
+                            hitTest.transformationMatrix.decompose(undefined, centerDonutMesh.rotationQuaternion, centerDonutMesh.position);
+                        }
                     }
 
                     // Re-parent modelRoot under the center donut, preserving local (browser) transform
