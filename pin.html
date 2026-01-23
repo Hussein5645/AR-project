@@ -262,10 +262,6 @@
                 const ry = (parseFloat(ctrlRY.value) || 0) * (Math.PI/180);
                 const s = parseFloat(ctrlScale.value) || 1;
 
-                if (browserPlaced) {
-                    const replace = confirm('There is already an instance of this model. OK = Replace, Cancel = Keep existing.');
-                    if (!replace) return; // keep existing
-                }
 
                 // Use original mesh for placement and movement
                 originalMesh.isVisible = true;
